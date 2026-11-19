@@ -15,7 +15,9 @@ import hashlib
 import html
 import io
 import os
+import re
 import threading
+from pathlib import Path
 from urllib.parse import urlsplit
 from datetime import date
 
@@ -301,30 +303,63 @@ def platform_picker():
         q_error(e)
 
 
+IMG_DIR = Path(__file__).parent / "assets" / "platforms"
+
+
+def file_slug(text):
+    """Same file-name rule as the desktop app: lower case, runs of other characters -> '_'."""
+    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+
+
+def platform_image(name):
+    """Picture rendered from the BLP 3D model: the platform's own, else its category's, else None."""
+    cat, _ = platform_meta(name)
+    for stem in (file_slug(name), file_slug(cat)):
+        f = IMG_DIR / f"{stem}.png"
+        if stem and f.exists():
+            return f
+    return None
+
+
 def platform_card(name, idx, compact=False):
     cat, origin = platform_meta(name)
+    img = platform_image(name)
     with st.container(key=f"card_plat_{idx}"):
-        st.markdown(
-            f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:4px'>"
-            f"<span style='font-size:1.15rem;font-weight:650;color:#eef2f6'>{html.escape(name)}</span>"
-            f"<span style='color:#a3afbb;font-size:.9rem'>{html.escape(cat)}</span>"
-            f"{badge(origin, ORIGIN_COLORS.get(origin, D.ORANGE))}</div>",
-            unsafe_allow_html=True)
-        if not compact:
-            choice("How did it perform?", card_key(name, "platform_status"), D.PLATFORM_STATUS)
-        choice("Effectiveness (overall)", card_key(name, "effectiveness"), D.EFFECTIVENESS,
-               required=True,
-               error=err(f"eff::{name}", "Required: rate effectiveness from 1 to 5."))
+        top_l, top_r = st.columns([2.6, 1], vertical_alignment="center")
+        with top_r:
+            if img:
+                st.image(str(img), width="stretch")
+                st.caption("BLP stylized model · illustrative")
+        with top_l:
+            card_top(name, cat, origin, compact)
         if compact:
             return
-        st.markdown("<div class='sec-title'>TRAITS (OPTIONAL) · 1 = POOR, 5 = BEST</div>",
-                    unsafe_allow_html=True)
-        cols = st.columns(2, gap="large")
-        for i, (key, label, hint, _req) in enumerate(D.TRAITS):
-            with cols[i % 2]:
-                choice(label, card_key(name, key), D.RATING, hint=hint)
-        choice("Field-modified by the unit?", card_key(name, "field_modified"),
-               D.YES_NO_NEUTRAL)
+        traits_block(name)
+
+
+def card_top(name, cat, origin, compact):
+    st.markdown(
+        f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:4px'>"
+        f"<span style='font-size:1.15rem;font-weight:650;color:#eef2f6'>{html.escape(name)}</span>"
+        f"<span style='color:#a3afbb;font-size:.9rem'>{html.escape(cat)}</span>"
+        f"{badge(origin, ORIGIN_COLORS.get(origin, D.ORANGE))}</div>",
+        unsafe_allow_html=True)
+    if not compact:
+        choice("How did it perform?", card_key(name, "platform_status"), D.PLATFORM_STATUS)
+    choice("Effectiveness (overall)", card_key(name, "effectiveness"), D.EFFECTIVENESS,
+           required=True,
+           error=err(f"eff::{name}", "Required: rate effectiveness from 1 to 5."))
+
+
+def traits_block(name):
+    st.markdown("<div class='sec-title'>TRAITS (OPTIONAL) · 1 = POOR, 5 = BEST</div>",
+                unsafe_allow_html=True)
+    cols = st.columns(2, gap="large")
+    for i, (key, label, hint, _req) in enumerate(D.TRAITS):
+        with cols[i % 2]:
+            choice(label, card_key(name, key), D.RATING, hint=hint)
+    choice("Field-modified by the unit?", card_key(name, "field_modified"),
+           D.YES_NO_NEUTRAL)
 
 
 def section_platforms(compact=False):
