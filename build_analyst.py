@@ -29,6 +29,7 @@ sub('  $("#status").textContent=`REPORTS ${shownCount}/${total}   |   `+(storage
 sub('  if(DB.reports.length===0&&!flagged){generateSampleData(SEED_COUNT);seeded=true;}',
     '  if(!LIVE&&DB.reports.length===0&&!flagged){generateSampleData(SEED_COUNT);seeded=true;}')
 sub('renderDB();selectTab("form");', 'renderDB();if(LIVE){$("#tab-form").hidden=true;selectTab("ins");}else selectTab("form");')
+sub('<span class="badge">UNCLASSIFIED // PROTOTYPE - SAMPLE DATA ONLY</span>', '<span class="badge">CUI // PROTOTYPE - SAMPLE DATA ONLY</span>')
 sub('</style>\n</head>', 'body.live .topbar{display:none}\nbody.live #loadSamples,body.live #rmSamples,body.live #delSel,body.live #resJson{display:none}\n</style>\n</head>')
 work = HERE / "_build"
 if work.exists(): shutil.rmtree(work)

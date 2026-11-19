@@ -25,7 +25,6 @@ from datetime import date
 import altair as alt
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 import data as D
 import graphs
@@ -234,6 +233,7 @@ def submit_report():
         rid = D.insert_report(conn(), rec, plat_rows)
     init_form(force=True)
     st.session_state["last_submitted"] = rid
+    st.session_state["reported"] = True          # unlocks Analyst login on the start page (per browser session)
 
 
 def platform_meta(name):
@@ -544,13 +544,19 @@ def page_new_report():
 
     if rid := st.session_state.get("last_submitted"):
         with st.container(key="card_done"):
-            st.success(f"Report #{rid} saved to the database.", icon=":material/check_circle:")
+            st.success(f"Report #{rid} sent. Thank you.", icon=":material/check_circle:")
+            st.html(FLOW_HTML)
             with st.container(horizontal=True):
-                st.button("Start a new report", type="primary", on_click=reset_form,
-                          icon=":material/add:")
-                st.page_link(PAGE_DB, label="View it in the report database",
-                             icon=":material/table_rows:")
+                if st.button("Return to start", type="primary", icon=":material/home:", key="done_home"):
+                    reset_form()
+                    st.session_state["view"] = None
+                    st.switch_page(PAGE_HOME)
+                st.button("File another report", on_click=reset_form, icon=":material/add:")
         return
+    if st.session_state.get("view") != "analyst":
+        if st.button("Back to start", icon=":material/arrow_back:", type="tertiary", key="form_home"):
+            st.session_state["view"] = None
+            st.switch_page(PAGE_HOME)
 
     quick = st.toggle("Quick mode: required answers only", key="quick", persist_state="session",
                       help="Shows only the required questions on one page.")
@@ -610,10 +616,32 @@ def page_new_report():
 # ===========================================================================
 # REPORT DATABASE
 # ===========================================================================
-def load_sample():
+SAMPLE_SIZES = [50, 150, 300, 600]
+
+
+def load_sample(n=150):
     with _WRITE_LOCK:
-        D.generate_sample_data(conn())
-    st.toast("Added 150 synthetic sample reports.", icon=":material/science:")
+        D.generate_sample_data(conn(), n=int(n))
+    st.toast(f"Added {int(n)} synthetic level 1 reports (plus 12 level 2–4).", icon=":material/science:")
+
+
+def sample_tools(where):
+    """Organizer box: add N random synthetic reports so the charts can be shown growing. Real reports
+    from the form keep working alongside; sample rows are marked "[sample data]" in their notes."""
+    with st.expander("Demo data: generate random reports", icon=":material/science:"):
+        if not is_admin():
+            admin_unlock()
+            return
+        c1, c2, c3 = st.columns([1.2, 1.2, 3], vertical_alignment="bottom")
+        n = c1.selectbox("How many", SAMPLE_SIZES, index=2, key=f"gen_n_{where}")
+        c2.button(f"Generate {n}", type="primary", icon=":material/casino:", key=f"gen_go_{where}",
+                  on_click=load_sample, args=(n,))
+        total = int(conn().execute("SELECT COUNT(*) FROM reports WHERE tier = 1").fetchone()[0])
+        n_sample = int(conn().execute("SELECT COUNT(*) FROM reports WHERE tier = 1 AND notes = '[sample data]'")
+                       .fetchone()[0])
+        c3.caption(f"Now: {total} level 1 reports ({n_sample} synthetic, {total - n_sample} entered on the "
+                   "form). Each click adds more on top; the charts redraw with the new totals. Synthetic "
+                   "reports carry the planted EW pattern.")
 
 
 def empty_state():
@@ -621,7 +649,7 @@ def empty_state():
             + (", or load synthetic sample data to try the database and insights views."
                if is_admin() else "."), icon=":material/inbox:")
     if is_admin():
-        st.button("Load 150 sample reports", type="primary", on_click=load_sample,
+        st.button("Load 300 sample reports", type="primary", on_click=load_sample, args=(300,),
                   icon=":material/science:", key="load_sample_empty")
 
 
@@ -733,8 +761,9 @@ def page_database():
                                file_name="field_reports.csv", mime="text/csv",
                                icon=":material/download:")
         with c2:
-            st.button("Add 150 sample reports", on_click=load_sample, icon=":material/science:",
-                      key="load_sample_more")
+            n = st.selectbox("Sample reports to add", SAMPLE_SIZES, index=2, key="gen_n_db")
+            st.button(f"Add {n} sample reports", on_click=load_sample, args=(n,),
+                      icon=":material/science:", key="load_sample_more")
         with c3:
             with st.popover("Delete all level 1 reports", icon=":material/delete:"):
                 st.write("This removes every level 1 report from this database.")
@@ -836,6 +865,7 @@ def page_insights():
     add_css(".block-container { max-width: 100%; padding-left: 1.5rem; padding-right: 1.5rem; }")
     if D.reports_df(conn()).empty:
         empty_state()
+    sample_tools("ins")
     console, quick = st.tabs(["Analyst console", "Quick summary"])
     with console:
         base = analyst_base()
@@ -843,8 +873,8 @@ def page_insights():
             st.error("analyst_base.html is missing from the app folder, so the analyst console can't load.")
         else:
             snap = json.dumps(D.db_snapshot(conn()), default=str).replace("</", "<\\/")
-            components.html(base.replace("/*__BLP_DB__*/", "window.__BLP_DB__=" + snap + ";", 1),
-                            height=1650, scrolling=True)
+            # data is JSON with "</" escaped, so text typed into a report can't end the script block
+            st.iframe(base.replace("/*__BLP_DB__*/", "window.__BLP_DB__=" + snap + ";", 1), height=1650)
             st.caption("Read-only view of the live database. Tabs inside: Insights (Tactical, Officer, "
                        "Sector map), Scorecard (radar, condition heatmap, weapon profile, 3D) and Report "
                        "list. Click a scorecard row and press PROFILE or VIEW 3D.")
@@ -999,10 +1029,92 @@ def quick_summary():
 
 
 # ===========================================================================
+# START PAGE: two doors (field report / analyst login)
+# ===========================================================================
+FLOW_HTML = """
+<div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:6px 0 12px;font-size:.92rem'>
+ <span class='badge' style='background:rgba(74,155,209,.15);color:#9ccbec;border:1px solid #2c6a95'>Your unit</span>→
+ <span class='badge' style='background:rgba(74,155,209,.15);color:#9ccbec;border:1px solid #2c6a95'>Secure upload</span>→
+ <span class='badge' style='background:rgba(74,155,209,.15);color:#9ccbec;border:1px solid #2c6a95'>Central database</span>→
+ <span class='badge' style='background:rgba(176,127,214,.18);color:#dcc6f2;border:1px solid #6d4a9a'>Analyst cell</span>
+</div>
+<div class='q-hint'>Field units only file reports. They never see the database or the analysis.</div>"""
+
+
+@st.cache_resource
+def access_state():
+    """Shared across every visitor: how the Analyst login button behaves. Resets on app restart."""
+    return {"mode": "after_report"}       # after_report | open | locked
+
+
+ACCESS_LABELS = {"after_report": "Unlock after filing a report (default)",
+                 "open": "Open to everyone", "locked": "Locked for everyone (organizer only)"}
+
+
+def analyst_allowed():
+    if ADMIN_CODE and st.session_state.get("admin_ok"):
+        return True
+    if not ADMIN_CODE:
+        return True                       # local copy with no passcode set: no gate
+    mode = access_state()["mode"]
+    return mode == "open" or (mode == "after_report" and st.session_state.get("reported", False))
+
+
+def page_home():
+    st.session_state["view"] = None
+    add_css(GLOBAL_DOOR_CSS)
+    page_header("Battlefield learning platform", "Field reporting prototype. Choose how you're using it.")
+    c1, c2 = st.columns(2, gap="large")
+    with c1, st.container(key="card_door_field"):
+        st.markdown("<div class='door-tag' style='color:#9ccbec'>FIELD UNIT</div>", unsafe_allow_html=True)
+        st.markdown("### File field report (soldier)")
+        st.caption("The short daily form a crew or outpost fills in after an engagement. About 2 minutes.")
+        if st.button("File field report", type="primary", icon=":material/edit_note:", key="door_field",
+                     width="stretch"):
+            st.session_state["view"] = "field"
+            st.switch_page(PAGE_NEW)
+    allowed = analyst_allowed()
+    with c2, st.container(key="card_door_analyst"):
+        st.markdown("<div class='door-tag' style='color:#dcc6f2'>AUTHORIZED PERSONNEL</div>",
+                    unsafe_allow_html=True)
+        st.markdown("### Analyst login")
+        st.caption("Report database, insights, scorecard, weapon profiles, sector map and graphs.")
+        if st.button("Analyst login" if allowed else "Analyst login (locked)",
+                     icon=":material/lock_open:" if allowed else ":material/lock:", key="door_analyst",
+                     disabled=not allowed, width="stretch"):
+            st.session_state["view"] = "analyst"
+            st.switch_page(PAGE_DB)
+        if not allowed:
+            mode = access_state()["mode"]
+            st.caption(":material/info: File a field report first." if mode == "after_report"
+                       else ":material/info: Locked by the organizer.")
+    st.write("")
+    with st.expander("Organizer", icon=":material/admin_panel_settings:"):
+        if not ADMIN_CODE:
+            st.caption("No organizer passcode is set (BLP_ADMIN_CODE), so Analyst login is always open here.")
+        elif not st.session_state.get("admin_ok"):
+            admin_unlock()
+        else:
+            st.radio("Analyst login for everyone", list(ACCESS_LABELS), format_func=ACCESS_LABELS.get,
+                     key="access_mode_pick", index=list(ACCESS_LABELS).index(access_state()["mode"]),
+                     on_change=lambda: access_state().update(mode=st.session_state["access_mode_pick"]))
+            st.caption("You always have analyst access on this device. The setting applies to every "
+                       "visitor right away and resets to the default if the app restarts.")
+
+
+GLOBAL_DOOR_CSS = """
+[class*="st-key-card_door_"] { min-height: 230px; }
+.door-tag { font-family:'JetBrains Mono', Consolas, monospace; font-size:.78rem; letter-spacing:.12em; font-weight:700; }
+.st-key-door_analyst button:disabled { opacity:.45; }
+.st-key-door_field button, .st-key-door_analyst button { min-height: 56px; font-size: 1.05rem; }
+"""
+
+
+# ===========================================================================
 # APP SHELL
 # ===========================================================================
-PAGE_NEW = st.Page(page_new_report, title="New report", icon=":material/edit_note:",
-                   default=True)
+PAGE_HOME = st.Page(page_home, title="Start", icon=":material/home:", default=True)
+PAGE_NEW = st.Page(page_new_report, title="New report", icon=":material/edit_note:", url_path="report")
 PAGE_DB = st.Page(page_database, title="Report database", icon=":material/table_rows:",
                   url_path="database")
 PAGE_INS = st.Page(page_insights, title="Insights", icon=":material/insights:",
@@ -1013,6 +1125,7 @@ def page_graphs():
     page_header("Graphs", "Interactive views that grow with the reports: networks, learning curves, 3D, "
                 "flows and animated bubbles. Pick one below.")
     add_css(".block-container { max-width: 1500px; }")
+    sample_tools("graphs")
     if not graphs.render(conn()):
         empty_state()
 
@@ -1020,7 +1133,10 @@ def page_graphs():
 PAGE_GRAPHS = st.Page(page_graphs, title="Graphs", icon=":material/scatter_plot:", url_path="graphs")
 
 begin_page()
-nav = st.navigation([PAGE_NEW, PAGE_DB, PAGE_INS, PAGE_GRAPHS], position="top")
+# Field view: no tabs at all (start page and form only). Analyst view: every tab, once allowed.
+in_analyst = st.session_state.get("view") == "analyst" and analyst_allowed()
+pages = [PAGE_HOME, PAGE_NEW] + ([PAGE_DB, PAGE_INS, PAGE_GRAPHS] if analyst_allowed() else [])
+nav = st.navigation(pages, position="top" if in_analyst else "hidden")
 if st.button("Share", icon=":material/qr_code_2:", key="share_btn", help="Show a QR code to this app"):
     share_dialog()
 add_css(".st-key-share_btn { position: fixed; top: 10px; right: 64px; z-index: 999990; }"

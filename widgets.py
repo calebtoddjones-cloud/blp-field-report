@@ -167,7 +167,7 @@ h1 {{ font-size: 1.85rem !important; }}
 .brand {{ display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin-bottom: 4px; }}
 .brand .logo {{ font-family: 'JetBrains Mono', Consolas, monospace; font-weight:700; color:#4a9bd1; font-size:1.15rem; }}
 .brand .name {{ font-family: 'JetBrains Mono', Consolas, monospace; letter-spacing:.1em; font-size:.85rem; color:#d3dae2; }}
-.brand .class {{ margin-left:auto; background:#1f5130; color:#bfe8cd; padding:4px 10px; border-radius:4px;
+.brand .class {{ margin-left:auto; background:#502b85; color:#eadcff; padding:4px 10px; border-radius:4px;
   font-family:'JetBrains Mono', Consolas, monospace; font-size:.75rem; font-weight:700; letter-spacing:.04em; }}
 .q-label {{ font-weight: 600; font-size: 0.98rem; color:#e6ebf0; margin: 0.4rem 0 0.15rem; }}
 .q-hint {{ font-weight: 400; font-size: 0.85rem; color:#a3afbb; }}
@@ -194,7 +194,7 @@ def page_header(title, subtitle=None):
     add_css(GLOBAL_CSS)
     st.html(
         "<div class='brand'><span class='logo'>BLP</span><span class='name'>FIELD REPORTING</span>"
-        "<span class='class'>UNCLASSIFIED // PROTOTYPE · SAMPLE DATA ONLY</span></div>")
+        "<span class='class'>CUI // PROTOTYPE · SAMPLE DATA ONLY</span></div>")
     st.title(title)
     if subtitle:
         st.caption(subtitle)
