@@ -10,6 +10,8 @@ import html
 
 import streamlit as st
 
+from i18n import t
+
 from data import BLUE, opts
 
 ERR = "#f2abab"
@@ -75,17 +77,17 @@ def button_css(key, color, selected, height=44):
 # ---------------------------------------------------------------------------
 def q_label(text, required=False, hint=None):
     star = " <span class='req' aria-label='required'>*</span>" if required else ""
-    hint_html = f" <span class='q-hint'>{html.escape(hint)}</span>" if hint else ""
-    st.markdown(f"<div class='q-label'>{html.escape(text)}{star}{hint_html}</div>",
+    hint_html = f" <span class='q-hint'>{html.escape(t(hint))}</span>" if hint else ""
+    st.markdown(f"<div class='q-label'>{html.escape(t(text))}{star}{hint_html}</div>",
                 unsafe_allow_html=True)
 
 
 def q_error(text):
-    st.markdown(f"<div class='q-err'>⚠ {html.escape(text)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='q-err'>⚠ {html.escape(t(text))}</div>", unsafe_allow_html=True)
 
 
 def badge(text, color=BLUE, solid=False):
-    text = html.escape(str(text))
+    text = html.escape(t(str(text)))
     if solid:
         return (f"<span class='badge' style='background:{color};color:#0f1318;"
                 f"border:1px solid {color}'>{text}</span>")
@@ -127,7 +129,7 @@ def choice(label, key, spec, *, required=False, multi=False, exclusive=None, hin
         for i, (value, color, text) in enumerate(opts(spec)):
             selected = (value in (cur or [])) if multi else (value == cur)
             bkey = safe_key("opt", key, i)
-            st.button(text, key=bkey, on_click=_pick,
+            st.button(t(text), key=bkey, on_click=_pick,
                       args=(key, value, multi, exclusive, allow_clear and not required),
                       icon=":material/check:" if selected else None)
             add_css(button_css(bkey, color, selected))
@@ -139,8 +141,8 @@ def colored_select(label, key, options, *, colors=None, required=False, error=No
                    placeholder="Choose…", format_func=str):
     """A dropdown whose border and fill take the color of the chosen answer."""
     star = " :blue[\\*]" if required else ""
-    st.selectbox(label + star, options, index=None, key=key, placeholder=placeholder,
-                 format_func=format_func, persist_state="session")
+    st.selectbox(t(label) + star, options, index=None, key=key, placeholder=t(placeholder),
+                 format_func=lambda v: t(format_func(v)), persist_state="session")
     val = st.session_state.get(key)
     if val is not None:
         c = (colors or {}).get(val, BLUE)
@@ -195,7 +197,7 @@ def page_header(title, subtitle=None):
     st.html(
         "<div class='brand'><span class='logo'>BLP</span><span class='name'>FIELD REPORTING</span>"
         "<span class='class'>CUI // PROTOTYPE · SAMPLE DATA ONLY</span></div>")
-    st.title(title)
+    st.title(t(title))
     if subtitle:
-        st.caption(subtitle)
+        st.caption(t(subtitle))
 

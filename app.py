@@ -28,6 +28,7 @@ import streamlit as st
 
 import data as D
 import graphs
+from i18n import language_switch, t
 from widgets import (add_css, badge, begin_page, button_css, choice, color_dot_legend,
                      colored_select, flush_css, page_header, q_error, q_label, rgba, tint)
 
@@ -153,21 +154,21 @@ def missing_items():
     s = st.session_state
     out = []
     if not s.get("f_report_date"):
-        out.append(("report_date", "Report date", 1))
+        out.append(("report_date", t("Report date"), 1))
     if not s.get("f_unit_type"):
-        out.append(("unit_type", "Unit type", 1))
+        out.append(("unit_type", t("Unit type"), 1))
     if not s.get("f_task"):
-        out.append(("task", "Primary task", 1))
+        out.append(("task", t("Primary task"), 1))
     plats = selected_platforms()
     if not plats:
-        out.append(("platforms", "At least one platform", 3))
+        out.append(("platforms", t("At least one platform"), 3))
     for p in plats:
         if not s.get(card_key(p, "effectiveness")):
-            out.append((f"eff::{p}", f"Effectiveness for {p}", 3))
+            out.append((f"eff::{p}", t("Effectiveness for {p}", p=p), 3))
     if not s.get("f_malfunctions"):
-        out.append(("malfunctions", "Malfunction check", 4))
+        out.append(("malfunctions", t("Malfunction check"), 4))
     if not s.get("f_outcome"):
-        out.append(("outcome", "Mission outcome", 4))
+        out.append(("outcome", t("Mission outcome"), 4))
     return out
 
 
@@ -242,7 +243,7 @@ def platform_meta(name):
 
 def platform_label(name):
     cat, origin = platform_meta(name)
-    return f"{name}  ·  {cat}  ·  {origin}"
+    return f"{name}  ·  {t(cat)}  ·  {t(origin)}"
 
 
 ORIGIN_COLORS = {"U.S.": D.BLUE, "Ukraine": D.YELLOW, "Other partner": D.GRAY, "Custom": D.ORANGE}
@@ -251,15 +252,15 @@ ORIGIN_COLORS = {"U.S.": D.BLUE, "Ukraine": D.YELLOW, "Other partner": D.GRAY, "
 # ----- form sections --------------------------------------------------------
 def section_unit():
     with st.container(key="card_unit"):
-        st.subheader("Unit & task")
+        st.subheader(t("Unit & task"))
         c1, c2 = st.columns(2)
         with c1:
-            st.date_input("Report date :blue[\\*]", key="f_report_date", format="YYYY-MM-DD",
+            st.date_input(t("Report date") + " :blue[\\*]", key="f_report_date", format="YYYY-MM-DD",
                           persist_state="session")
             colored_select("Unit type", "f_unit_type", D.UNIT_TYPES, required=True,
                            error=err("unit_type", "Required: unit type."))
         with c2:
-            st.text_input("Unit ID (optional)", key="f_unit_id", placeholder="e.g. U-417",
+            st.text_input(t("Unit ID (optional)"), key="f_unit_id", placeholder=t("e.g. U-417"),
                           persist_state="session")
             colored_select("Primary task", "f_task", D.TASKS, required=True,
                            error=err("task", "Required: primary task."))
@@ -267,8 +268,8 @@ def section_unit():
 
 def section_conditions():
     with st.container(key="card_conditions"):
-        st.subheader("Location & conditions (optional)")
-        st.caption("Fill in what you know. Click a selected answer again to clear it.")
+        st.subheader(t("Location & conditions (optional)"))
+        st.caption(t("Fill in what you know. Click a selected answer again to clear it."))
         colored_select("Sector / location", "f_location", D.LOCATIONS)
         choice("Enemy EW / jamming", "f_ew_level", D.EW_LEVELS,
                hint="“None” means no jamming; leave blank if you don't know.")
@@ -279,9 +280,9 @@ def section_conditions():
         with c2:
             choice("Terrain", "f_terrain", D.TERRAIN)
     with st.container(key="card_adversary"):
-        st.subheader("Adversary (optional)")
-        on = st.toggle("Add adversary details", key="f_adv_on", persist_state="session",
-                       help="Off = nothing recorded for the adversary (not even “Unknown”).")
+        st.subheader(t("Adversary (optional)"))
+        on = st.toggle(t("Add adversary details"), key="f_adv_on", persist_state="session",
+                       help=t("Off = nothing recorded for the adversary (not even “Unknown”)."))
         if on:
             colored_select("Enemy type", "f_enemy_type", D.ENEMY_TYPES)
             choice("Estimated enemy strength", "f_enemy_strength", D.ENEMY_STRENGTH,
@@ -289,19 +290,19 @@ def section_conditions():
             choice("Enemy air defense", "f_ad_level", D.THREAT, allow_clear=False)
             choice("Enemy adaptation", "f_enemy_adaptation", D.ENEMY_ADAPT, allow_clear=False)
         else:
-            st.caption("Skipped. Turn on to describe the enemy force.")
+            st.caption(t("Skipped. Turn on to describe the enemy force."))
 
 
 def platform_picker():
     all_names = sorted(D.PLATFORM_INFO, key=lambda n: (D.PLATFORM_INFO[n][0], n))
     extra = [p for p in selected_platforms() if p not in D.PLATFORM_INFO]
     st.multiselect(
-        "Platforms employed :blue[\\*]", all_names + extra, key="f_platforms",
+        t("Platforms employed") + " :blue[\\*]", all_names + extra, key="f_platforms",
         format_func=platform_label, accept_new_options=True, persist_state="session",
         filter_mode="contains", select_all=False,
-        placeholder="Type a name or a category, e.g. Javelin, Puma, FPV, Anti-Armor",
-        help="Pick every platform you used. Not listed? Type its name and press Enter "
-             "to add it as a custom platform.")
+        placeholder=t("Type a name or a category, e.g. Javelin, Puma, FPV, Anti-Armor"),
+        help=t("Pick every platform you used. Not listed? Type its name and press Enter "
+               "to add it as a custom platform."))
     if e := err("platforms", "Required: pick at least one platform."):
         q_error(e)
 
@@ -332,7 +333,7 @@ def platform_card(name, idx, compact=False):
         with top_r:
             if img:
                 st.image(str(img), width="stretch")
-                st.caption("BLP stylized model · illustrative")
+                st.caption(t("BLP stylized model · illustrative"))
         with top_l:
             card_top(name, cat, origin, compact)
         if compact:
@@ -344,7 +345,7 @@ def card_top(name, cat, origin, compact):
     st.markdown(
         f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:4px'>"
         f"<span style='font-size:1.15rem;font-weight:650;color:#eef2f6'>{html.escape(name)}</span>"
-        f"<span style='color:#a3afbb;font-size:.9rem'>{html.escape(cat)}</span>"
+        f"<span style='color:#a3afbb;font-size:.9rem'>{html.escape(t(cat))}</span>"
         f"{badge(origin, ORIGIN_COLORS.get(origin, D.ORANGE))}</div>",
         unsafe_allow_html=True)
     if not compact:
@@ -355,7 +356,7 @@ def card_top(name, cat, origin, compact):
 
 
 def traits_block(name):
-    st.markdown("<div class='sec-title'>TRAITS (OPTIONAL) · 1 = POOR, 5 = BEST</div>",
+    st.markdown(f"<div class='sec-title'>{t('TRAITS (OPTIONAL) · 1 = POOR, 5 = BEST')}</div>",
                 unsafe_allow_html=True)
     cols = st.columns(2, gap="large")
     for i, (key, label, hint, _req) in enumerate(D.TRAITS):
@@ -367,13 +368,13 @@ def traits_block(name):
 
 def section_platforms(compact=False):
     with st.container(key="card_platforms"):
-        st.subheader("Which platforms did you use?")
+        st.subheader(t("Which platforms did you use?"))
         platform_picker()
         plats = selected_platforms()
         if plats:
-            st.caption(f"{len(plats)} selected. Each one gets its own rating card below.")
+            st.caption(t("{n} selected. Each one gets its own rating card below.", n=len(plats)))
         else:
-            st.caption("Nothing selected yet.")
+            st.caption(t("Nothing selected yet."))
     for i, p in enumerate(plats):
         platform_card(p, i, compact=compact)
 
@@ -381,33 +382,33 @@ def section_platforms(compact=False):
 def section_malfunctions_result():
     c1, c2 = st.columns(2, gap="medium")
     with c1, st.container(key="card_malfunctions"):
-        st.subheader("Malfunctions (whole engagement)")
+        st.subheader(t("Malfunctions (whole engagement)"))
         choice("Jams / malfunctions observed", "f_malfunctions", D.MALFUNCTIONS, required=True,
                multi=True, exclusive=D.MAL_NONE,
                hint="Pick “None observed” or every problem you saw.",
                error=err("malfunctions", "Required: pick “None observed” or a malfunction."))
         if has_malfunction():
-            st.markdown("<div class='sec-title'>▸ SHOWN BECAUSE YOU REPORTED A MALFUNCTION</div>",
+            st.markdown(f"<div class='sec-title'>{t('▸ SHOWN BECAUSE YOU REPORTED A MALFUNCTION')}</div>",
                         unsafe_allow_html=True)
             choice("Impact on the mission", "f_malfunction_impact", D.MAL_IMPACT[1:])
     with c2, st.container(key="card_result"):
-        st.subheader("Mission result")
+        st.subheader(t("Mission result"))
         choice("Mission outcome", "f_outcome", D.OUTCOMES, required=True,
                error=err("outcome", "Required: pick the mission outcome."))
         o = st.session_state.get("f_outcome")
         if o:
-            st.markdown(f"<div class='q-hint' style='margin-top:4px'>{html.escape(o)}: "
-                        f"{html.escape(D.OUTCOME_DEFS[o])}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='q-hint' style='margin-top:4px'>{html.escape(t(o))}: "
+                        f"{html.escape(t(D.OUTCOME_DEFS[o]))}</div>", unsafe_allow_html=True)
         if o and o != "Success":
             choice("What most limited the result? (optional)", "f_outcome_driver",
                    D.OUTCOME_DRIVERS)
     with st.container(key="card_notes"):
-        st.text_area("Notes (optional)", key="f_notes", persist_state="session",
-                     placeholder="Anything that didn't fit above.")
+        st.text_area(t("Notes (optional)"), key="f_notes", persist_state="session",
+                     placeholder=t("Anything that didn't fit above."))
 
 
 def kv_rows(items):
-    body = "".join(f"<span class='k'>{html.escape(k)}</span><span>{v}</span>" for k, v in items)
+    body = "".join(f"<span class='k'>{html.escape(t(k))}</span><span>{v}</span>" for k, v in items)
     return f"<div class='kv'>{body}</div>"
 
 
@@ -429,10 +430,10 @@ def trait_badges(get):
     for k, *_ in D.TRAITS:
         v = get(k)
         if v is None or (isinstance(v, float) and pd.isna(v)):
-            out.append(badge(f"{D.TRAIT_SHORT[k]} –", D.GRAY))
+            out.append(badge(f"{t(D.TRAIT_SHORT[k])} –", D.GRAY))
         else:
             v = int(v)
-            out.append(badge(f"{D.TRAIT_SHORT[k]} {v}", D.color_of(D.RATING, v)))
+            out.append(badge(f"{t(D.TRAIT_SHORT[k])} {v}", D.color_of(D.RATING, v)))
     return "".join(out)
 
 
@@ -441,15 +442,17 @@ def section_review():
     miss = missing_items()
     miss_ids = {i for i, *_ in miss}
     with st.container(key="card_review"):
-        st.subheader("Review before you submit")
+        st.subheader(t("Review before you submit"))
         if miss:
             st.markdown(
                 "<div class='q-err' style='font-size:.95rem;margin-bottom:8px'>⚠ "
-                f"{len(miss)} required answer{'s' if len(miss) > 1 else ''} still missing.</div>",
+                + (t("{n} required answer(s) still missing.", n=len(miss)) if st.session_state.get("_tr_on")
+                   else f"{len(miss)} required answer{'s' if len(miss) > 1 else ''} still missing.")
+                + "</div>",
                 unsafe_allow_html=True)
             with st.container(horizontal=True, gap="small"):
                 for n, (_i, label, step) in enumerate(miss):
-                    st.button(f"Fix: {label}", key=f"fix_{n}", on_click=goto, args=(step,),
+                    st.button(t("Fix: {s}", s=label), key=f"fix_{n}", on_click=goto, args=(step,),
                               icon=":material/error:")
                     add_css(button_css(f"fix_{n}", D.RED, False, 40))
 
@@ -458,13 +461,13 @@ def section_review():
 
         c1, c2 = st.columns(2, gap="large")
         with c1:
-            st.markdown("<div class='sec-title'>UNIT & TASK</div>" + kv_rows([
+            st.markdown(f"<div class='sec-title'>{t('UNIT & TASK')}</div>" + kv_rows([
                 ("Date", req("report_date", html.escape(str(s["f_report_date"] or "")))),
                 ("Unit", req("unit_type", b_field("unit_type", s["f_unit_type"]))),
                 ("Unit ID", html.escape(s["f_unit_id"] or "—")),
                 ("Task", req("task", b_field("task", s["f_task"]))),
             ]), unsafe_allow_html=True)
-            st.markdown("<div class='sec-title'>LOCATION & CONDITIONS</div>" + kv_rows([
+            st.markdown(f"<div class='sec-title'>{t('LOCATION & CONDITIONS')}</div>" + kv_rows([
                 ("Sector", b_field("location", s["f_location"])),
                 ("Enemy EW", b_field("ew_level", s["f_ew_level"])),
                 ("Weather", b_field("weather", s["f_weather"])),
@@ -479,8 +482,8 @@ def section_review():
                     ("Adaptation", b_field("enemy_adaptation", s["f_enemy_adaptation"])),
                 ])
             else:
-                adv = "<div class='q-hint'>Skipped (nothing recorded).</div>"
-            st.markdown("<div class='sec-title'>ADVERSARY</div>" + adv, unsafe_allow_html=True)
+                adv = f"<div class='q-hint'>{t('Skipped (nothing recorded).')}</div>"
+            st.markdown(f"<div class='sec-title'>{t('ADVERSARY')}</div>" + adv, unsafe_allow_html=True)
         with c2:
             mals = "".join(badge(m, D.color_of(D.MALFUNCTIONS, m)) for m in s["f_malfunctions"])
             res = [("Outcome", req("outcome", b_field("outcome", s["f_outcome"])))]
@@ -489,12 +492,12 @@ def section_review():
             res.append(("Malfunctions", req("malfunctions", mals)))
             if has_malfunction():
                 res.append(("Impact", b_field("malfunction_impact", s["f_malfunction_impact"])))
-            st.markdown("<div class='sec-title'>MALFUNCTIONS & RESULT</div>" + kv_rows(res),
+            st.markdown(f"<div class='sec-title'>{t('MALFUNCTIONS & RESULT')}</div>" + kv_rows(res),
                         unsafe_allow_html=True)
             if s["f_notes"]:
-                st.markdown("<div class='sec-title'>NOTES</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='sec-title'>{t('NOTES')}</div>", unsafe_allow_html=True)
                 st.text(s["f_notes"])
-        st.markdown("<div class='sec-title'>PLATFORMS</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='sec-title'>{t('PLATFORMS')}</div>", unsafe_allow_html=True)
         plats = selected_platforms()
         if not plats:
             st.markdown(req("platforms", ""), unsafe_allow_html=True)
@@ -502,7 +505,7 @@ def section_review():
             eff = s.get(card_key(p, "effectiveness"))
             st.markdown(
                 f"<div style='margin:4px 0 10px'><b>{html.escape(p)}</b> "
-                f"<span class='q-hint'>{html.escape(platform_meta(p)[0])}</span><br>"
+                f"<span class='q-hint'>{html.escape(t(platform_meta(p)[0]))}</span><br>"
                 + b_field("platform_status", s.get(card_key(p, "platform_status")))
                 + (b_field("effectiveness", eff) if eff else badge("Effectiveness missing", D.RED, solid=True))
                 + trait_badges(lambda k, p=p: s.get(card_key(p, k)))
@@ -526,7 +529,7 @@ def stepper(step):
             else:
                 color, solid, icon = D.GRAY, False, None
             key = f"step_{i}"
-            st.button(f"{i} · {name}", key=key, on_click=goto, args=(i,), icon=icon,
+            st.button(f"{i} · {t(name)}", key=key, on_click=goto, args=(i,), icon=icon,
                       width="stretch")
             add_css(button_css(key, color, solid, 52))
 
@@ -534,39 +537,40 @@ def stepper(step):
 def progress_bar():
     total = required_total()
     done = total - len(missing_items())
-    st.progress(done / total, text=f"{done} of {total} required answers done")
+    st.progress(done / total, text=t("{done} of {total} required answers done", done=done, total=total))
 
 
 def page_new_report():
     init_form()
+    language_switch()
     page_header("Daily engagement report",
                 "Level 1 · Tactical. About 2 minutes. Only answers marked * are required.")
 
     if rid := st.session_state.get("last_submitted"):
         with st.container(key="card_done"):
-            st.success(f"Report #{rid} sent. Thank you.", icon=":material/check_circle:")
-            st.html(FLOW_HTML)
+            st.success(t("Report #{rid} sent. Thank you.", rid=rid), icon=":material/check_circle:")
+            st.html(flow_html())
             with st.container(horizontal=True):
-                if st.button("Return to start", type="primary", icon=":material/home:", key="done_home"):
+                if st.button(t("Return to start"), type="primary", icon=":material/home:", key="done_home"):
                     reset_form()
                     st.session_state["view"] = None
                     st.switch_page(PAGE_HOME)
-                st.button("File another report", on_click=reset_form, icon=":material/add:")
+                st.button(t("File another report"), on_click=reset_form, icon=":material/add:")
         return
     if st.session_state.get("view") != "analyst":
-        if st.button("Back to start", icon=":material/arrow_back:", type="tertiary", key="form_home"):
+        if st.button(t("Back to start"), icon=":material/arrow_back:", type="tertiary", key="form_home"):
             st.session_state["view"] = None
             st.switch_page(PAGE_HOME)
 
-    quick = st.toggle("Quick mode: required answers only", key="quick", persist_state="session",
-                      help="Shows only the required questions on one page.")
+    quick = st.toggle(t("Quick mode: required answers only"), key="quick", persist_state="session",
+                      help=t("Shows only the required questions on one page."))
 
     if quick:
         progress_bar()
         with st.container(key="card_quick"):
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.date_input("Report date :blue[\\*]", key="f_report_date",
+                st.date_input(t("Report date") + " :blue[\\*]", key="f_report_date",
                               format="YYYY-MM-DD", persist_state="session")
             with c2:
                 colored_select("Unit type", "f_unit_type", D.UNIT_TYPES, required=True,
@@ -582,10 +586,10 @@ def page_new_report():
             choice("Mission outcome", "f_outcome", D.OUTCOMES, required=True,
                    error=err("outcome", "Required: pick the mission outcome."))
         with st.container(horizontal=True, horizontal_alignment="right"):
-            st.button("Submit report", type="primary", on_click=submit_report,
+            st.button(t("Submit report"), type="primary", on_click=submit_report,
                       icon=":material/send:", key="submit_quick")
         if st.session_state.get("show_errors") and missing_items():
-            st.error("Some required answers are missing. They're marked in red above.")
+            st.error(t("Some required answers are missing. They're marked in red above."))
         return
 
     step = st.session_state["step"]
@@ -598,19 +602,19 @@ def page_new_report():
     st.write("")
     left, right = st.columns([1, 1], vertical_alignment="center")
     with left:
-        st.caption("Your answers are kept while you move between steps.")
+        st.caption(t("Your answers are kept while you move between steps."))
     with right, st.container(horizontal=True, horizontal_alignment="right"):
         if step > 1:
-            st.button(f"Back: {STEPS[step - 2]}", on_click=goto, args=(step - 1,), key="nav_back",
+            st.button(t("Back: {s}", s=t(STEPS[step - 2])), on_click=goto, args=(step - 1,), key="nav_back",
                       icon=":material/arrow_back:")
         if step < len(STEPS):
-            st.button(f"Next: {STEPS[step]}", type="primary", on_click=goto, args=(step + 1,),
+            st.button(t("Next: {s}", s=t(STEPS[step])), type="primary", on_click=goto, args=(step + 1,),
                       key="nav_next", icon=":material/arrow_forward:", icon_position="right")
         else:
-            st.button("Submit report", type="primary", on_click=submit_report, key="submit",
+            st.button(t("Submit report"), type="primary", on_click=submit_report, key="submit",
                       icon=":material/send:")
     if step == len(STEPS) and st.session_state.get("show_errors") and missing_items():
-        st.error("Can't submit yet. Use the red Fix buttons above to finish the missing answers.")
+        st.error(t("Can't submit yet. Use the red Fix buttons above to finish the missing answers."))
 
 
 # ===========================================================================
@@ -820,9 +824,9 @@ def report_detail(r):
             ])
         else:
             adv = "<div class='q-hint'>Section skipped.</div>"
-        st.markdown("<div class='sec-title'>ADVERSARY</div>" + adv, unsafe_allow_html=True)
+        st.markdown(f"<div class='sec-title'>{t('ADVERSARY')}</div>" + adv, unsafe_allow_html=True)
         if r["notes"]:
-            st.markdown("<div class='sec-title'>NOTES</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='sec-title'>{t('NOTES')}</div>", unsafe_allow_html=True)
             st.text(r["notes"])
         if not is_admin():
             return
@@ -1041,6 +1045,14 @@ FLOW_HTML = """
 <div class='q-hint'>Field units only file reports. They never see the database or the analysis.</div>"""
 
 
+def flow_html():
+    out = FLOW_HTML
+    for txt in ("Your unit", "Secure upload", "Central database", "Analyst cell",
+                "Field units only file reports. They never see the database or the analysis."):
+        out = out.replace(f">{txt}<", f">{html.escape(t(txt))}<")
+    return out
+
+
 @st.cache_resource
 def access_state():
     """Shared across every visitor: how the Analyst login button behaves. Resets on app restart."""
@@ -1133,13 +1145,15 @@ def page_graphs():
 PAGE_GRAPHS = st.Page(page_graphs, title="Graphs", icon=":material/scatter_plot:", url_path="graphs")
 
 begin_page()
+st.session_state["_tr_on"] = False          # Ukrainian only ever switches on inside the report form
 # Field view: no tabs at all (start page and form only). Analyst view: every tab, once allowed.
 in_analyst = st.session_state.get("view") == "analyst" and analyst_allowed()
 pages = [PAGE_HOME, PAGE_NEW] + ([PAGE_DB, PAGE_INS, PAGE_GRAPHS] if analyst_allowed() else [])
 nav = st.navigation(pages, position="top" if in_analyst else "hidden")
 if st.button("Share", icon=":material/qr_code_2:", key="share_btn", help="Show a QR code to this app"):
     share_dialog()
-add_css(".st-key-share_btn { position: fixed; top: 10px; right: 64px; z-index: 999990; }"
+add_css(".st-key-lang_corner { position: fixed; top: 10px; right: 160px; z-index: 999990; width: auto; }"
+        ".st-key-share_btn { position: fixed; top: 10px; right: 64px; z-index: 999990; }"
         ".st-key-share_btn button { min-height: 36px; }")
 nav.run()
 flush_css()
