@@ -7,8 +7,7 @@ asked here yet; level 2–4 rows already in a database are left alone and kept o
 tables and charts (as the desktop app does for its Scorecard and Insights).
 
 **Everything here is illustrative.** The platform catalog is not authoritative, and the
-"Load sample reports" button makes synthetic data with a built-in EW pattern. Use it to
-test the pipeline, not as evidence.
+"Load sample reports" button makes synthetic data with a built-in EW pattern. 
 
 ## Run it on your computer
 
