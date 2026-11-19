@@ -14,6 +14,7 @@ The platform catalog and all sample data are ILLUSTRATIVE, not real.
 import hashlib
 import html
 import io
+import json
 import os
 import re
 import threading
@@ -24,8 +25,10 @@ from datetime import date
 import altair as alt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 import data as D
+import graphs
 from widgets import (add_css, badge, begin_page, button_css, choice, color_dot_legend,
                      colored_select, flush_css, page_header, q_error, q_label, rgba, tint)
 
@@ -818,11 +821,41 @@ COMPARE = {      # same conditions as the desktop heatmap (HEAT_CONDITIONS)
 }
 
 
+ANALYST_FILE = Path(__file__).parent / "analyst_base.html"
+
+
+@st.cache_resource
+def analyst_base():
+    """The desktop project's v3 HTML page (analyst features + baked 3D models), built by build_analyst.py."""
+    return ANALYST_FILE.read_text(encoding="utf-8") if ANALYST_FILE.exists() else None
+
+
 def page_insights():
-    page_header("Insights")
+    page_header("Insights", "Analyst view. Same tables, scorecard math, charts, weapon profiles, 3D models and "
+                "sector map as the desktop v3 app, reading this app's live database.")
+    add_css(".block-container { max-width: 100%; padding-left: 1.5rem; padding-right: 1.5rem; }")
+    if D.reports_df(conn()).empty:
+        empty_state()
+    console, quick = st.tabs(["Analyst console", "Quick summary"])
+    with console:
+        base = analyst_base()
+        if not base:
+            st.error("analyst_base.html is missing from the app folder, so the analyst console can't load.")
+        else:
+            snap = json.dumps(D.db_snapshot(conn()), default=str).replace("</", "<\\/")
+            components.html(base.replace("/*__BLP_DB__*/", "window.__BLP_DB__=" + snap + ";", 1),
+                            height=1650, scrolling=True)
+            st.caption("Read-only view of the live database. Tabs inside: Insights (Tactical, Officer, "
+                       "Sector map), Scorecard (radar, condition heatmap, weapon profile, 3D) and Report "
+                       "list. Click a scorecard row and press PROFILE or VIEW 3D.")
+    with quick:
+        quick_summary()
+
+
+def quick_summary():
     df = D.reports_df(conn())
     if df.empty:
-        empty_state()
+        st.caption("No level 1 reports yet.")
         return
     cards = D.platform_rows_df(conn())
     rated = cards[(cards["rated_individually"] == 1) & cards["p_effectiveness"].notna()]
@@ -975,8 +1008,19 @@ PAGE_DB = st.Page(page_database, title="Report database", icon=":material/table_
 PAGE_INS = st.Page(page_insights, title="Insights", icon=":material/insights:",
                    url_path="insights")
 
+
+def page_graphs():
+    page_header("Graphs", "Interactive views that grow with the reports: networks, learning curves, 3D, "
+                "flows and animated bubbles. Pick one below.")
+    add_css(".block-container { max-width: 1500px; }")
+    if not graphs.render(conn()):
+        empty_state()
+
+
+PAGE_GRAPHS = st.Page(page_graphs, title="Graphs", icon=":material/scatter_plot:", url_path="graphs")
+
 begin_page()
-nav = st.navigation([PAGE_NEW, PAGE_DB, PAGE_INS], position="top")
+nav = st.navigation([PAGE_NEW, PAGE_DB, PAGE_INS, PAGE_GRAPHS], position="top")
 if st.button("Share", icon=":material/qr_code_2:", key="share_btn", help="Show a QR code to this app"):
     share_dialog()
 add_css(".st-key-share_btn { position: fixed; top: 10px; right: 64px; z-index: 999990; }"

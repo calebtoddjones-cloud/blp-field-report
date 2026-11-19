@@ -10,6 +10,7 @@ Sample data is SYNTHETIC with a planted EW-sensitivity pattern; it tests the app
 not evidence.
 """
 
+import json
 import os
 import random
 import shutil
@@ -498,3 +499,58 @@ def generate_sample_data(conn, n=150, seed=None):
             "tier": MODEL_TIER, **enemy, **rollup(plat_rows),
         }
         insert_report(conn, rec, plat_rows)
+    generate_senior_samples(conn, seed=None if seed is None else seed + 1)
+
+
+# ---- Level 2-4 (officer) samples, ported from field_report_app_v3.py (question_set draft-3, DRAFT).
+# The web form does not ask these yet; they exist so the analyst console's Officer Insights has rows to show.
+SENIOR = (2, 3, 4)
+QUESTION_SET = "draft-3"
+CAPABILITY_AREAS = ["Counter-drone", "EW / counter-EW", "Indirect fires", "Air defense", "ISR / reconnaissance",
+                    "Strike UAS", "Communications / C2", "Mobility / protection", "Sustainment", "None identified"]
+US_PLATFORMS = ["None / not applicable"] + sorted(n for items in CATALOG.values() for n, o in items if o == "U.S.")
+VS_UKRAINE = ["US is better", "About the same", "US is worse", "Mixed", "Not sure"]
+SENIOR_QUESTIONS = [
+    ("us_best", "US platform that worked best for you", US_PLATFORMS, (2,)),
+    ("us_worst", "US platform that gave you the most problems", US_PLATFORMS, (2,)),
+    ("us_overall", "US platforms overall", ["Exceeded expectations", "Met expectations", "Fell short", "Mixed"], (3,)),
+    ("capability_strength", "US capability area that worked best", CAPABILITY_AREAS, (4,)),
+    ("capability_gap", "US capability area that fell short", CAPABILITY_AREAS, (4,)),
+    ("us_vs_ukraine", "US platforms compared with Ukrainian equivalents", VS_UKRAINE, (2, 3, 4)),
+]
+THEME_TAGS = ["Ease of maintenance", "Spare parts availability", "Platform survivability", "Crew survivability",
+              "Lethality", "How hard to hit"]
+TEXT_QUESTIONS = [("sustain", "What US platforms did well"), ("improve", "Problems with US platforms"),
+                  ("lessons_learned", "Your opinion / recommendation (compare with Ukrainian technology if you can)")]
+
+
+def generate_senior_samples(conn, per_level=4, seed=None):
+    """SYNTHETIC level 2-4 reports (placeholder text, random picks). Never read by any level 1 table or chart."""
+    rng = random.Random(seed)
+    items = [r[0] for r in conn.execute("SELECT name FROM weapons")]
+    for tier in SENIOR:
+        for i in range(1, per_level + 1):
+            picks = rng.sample(items, rng.choice([0, 1, 2]))
+            plat_rows = [{"platform": n, "platform_status": rng.choice(values(PLATFORM_STATUS)),
+                          "effectiveness": rng.randint(1, 5), "field_modified": 0} for n in picks]
+            answers = {"question_set": QUESTION_SET, "operation_code": f"SAMPLE-L{tier}-{i}",
+                       **{k: rng.choice(o) for k, _l, o, levels in SENIOR_QUESTIONS if tier in levels},
+                       "themes": "; ".join(rng.sample(THEME_TAGS, rng.choice([1, 2, 3]))),
+                       **{k: "SYNTHETIC SAMPLE: placeholder text. Not an observation." for k, _l in TEXT_QUESTIONS}}
+            rec = {"report_date": (date.today() - timedelta(days=rng.randint(0, 60))).isoformat(),
+                   "task": rng.choice(TASKS[:-1]), "location": rng.choice(LOCATIONS[:-1]),
+                   "outcome": rng.choice(values(OUTCOMES)), "notes": "[sample data]",
+                   "tier": tier, "tier_answers": json.dumps(answers), **rollup(plat_rows)}
+            insert_report(conn, rec, plat_rows)
+
+
+def db_snapshot(conn):
+    """Every report (all levels) and platform card, in the layout the v3 HTML page keeps in memory."""
+    cur = conn.execute("SELECT * FROM reports ORDER BY id")
+    cols = [d[0] for d in cur.description]
+    reports = [dict(zip(cols, r)) for r in cur.fetchall()]
+    cur = conn.execute("SELECT * FROM report_platforms ORDER BY rowid")
+    pcols = [d[0] for d in cur.description]
+    plats = [dict(zip(pcols, r)) for r in cur.fetchall()]
+    next_id = 1 + max([r["id"] for r in reports] or [0])
+    return {"reports": reports, "plats": plats, "nextId": next_id}

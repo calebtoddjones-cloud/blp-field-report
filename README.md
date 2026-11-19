@@ -44,10 +44,14 @@ one-time backup copy saved next to it first.
   "Unknown" is gray. Missing required answers show in red, with Fix buttons on Review.
 - **Report database**: filters, a color-coded table, and a detail panel with each
   platform's own ratings; CSV export, sample data, delete.
-- **Insights**: summary numbers, a category heatmap from the platform cards (compare by
-  the same conditions as the desktop heatmap), platform traits by category, most common
-  malfunctions, what limited the result, and outcomes by condition. Plain averages; the
-  desktop Scorecard's small-sample adjustment is not repeated here.
+- **Insights**: the analyst console from the desktop project's v3 HTML page (`analyst_base.html`,
+  built by `build_analyst.py`), reading this app's live database read-only: Tactical tables,
+  Officer Insights (levels 2-4), Sector map, Scorecard (adjusted averages, composite, radar,
+  heatmap), weapon profiles and the 3D viewer. A "Quick summary" tab keeps the simpler charts.
+- **Graphs**: interactive views that redraw from the reports every time: platform networks
+  (used together / platform to malfunction / category hubs), learning curves (running averages
+  settling as reports arrive), 3D effectiveness landscape and trait space, a flow (Sankey) from
+  conditions to outcome to limiting factor, and animated bubbles week by week. Plotly.
 
 ## Files
 
@@ -55,6 +59,8 @@ one-time backup copy saved next to it first.
 |---|---|
 | `app.py` | The three pages and the app shell |
 | `data.py` | Catalog, answer options and their colors, database (ported from v3), sample-data generator (v3's, level 1 only) |
+| `graphs.py` | The Graphs page |
+| `analyst_base.html` | Analyst console page with the 3D models baked in (rebuild with `python build_analyst.py "..\\FieldReport\\html"`) |
 | `widgets.py` | Color-coded answer buttons, colored dropdowns, badges, page styling |
 | `.streamlit/config.toml` | Dark theme |
 | `requirements.txt` | Python packages (Streamlit 1.67 or newer) |

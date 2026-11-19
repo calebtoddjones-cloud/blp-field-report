@@ -2,3 +2,5 @@ streamlit>=1.67
 pandas
 altair
 qrcode
+plotly
+networkx
