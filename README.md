@@ -51,14 +51,22 @@ one-time backup copy saved next to it first.
   (used together / platform to malfunction / category hubs), learning curves (running averages
   settling as reports arrive), 3D effectiveness landscape and trait space, a flow (Sankey) from
   conditions to outcome to limiting factor, and animated bubbles week by week. Plotly.
-- **Lab**: a forecast to explore ideas. Pick the closest existing system (for example HAWK), name the
-  new one, and set modifications the model can represent: a different origin, a field-modified build,
-  or "behaves partly like another class" (an analyst assumption that blends two classes' forecasts).
-  Then move the condition sliders (enemy EW, enemy air defense, time of day, weather, terrain, more).
-  Shows the predicted effectiveness against the base system, a stress test across EW levels, which
-  conditions move the forecast most, and the holdout test (random forest vs guessing the average,
-  split by report, seed 42). The model knows only class, origin, field-modified and conditions; it
-  cannot see range, seeker or other design details. Needs at least 60 rated platform cards.
+- **Lab**: design a new system and forecast how it would do. Start from the closest existing
+  system (e.g. HAWK); its estimated capability profile (armor, signature, mobility, guidance / control
+  link, jamming resistance, reach, crew; `profiles.py`, illustrative estimates) sets the design sliders.
+  Also: origin, field-modified, and "behaves partly like another class" (an analyst assumption that blends
+  two classes' forecasts). Separate models forecast effectiveness, platform survival, crew survival, ease of
+  maintenance, how hard it is to hit and loss risk (all from questions the form already asks), so changes
+  show up as trade-offs. Panels: 3D hologram of the base system, status bar, trade-off profile, stat
+  modifiers, trade space (every reported system under the chosen conditions), nearest real systems with an
+  extrapolation alert, three effectiveness models side by side, EW stress test, sensitivity, a session
+  "hangar" of saved designs, and a trust panel (holdout error vs baseline per outcome, split by report,
+  seed 42, plus a planted-pattern check on synthetic data). Needs at least 60 rated platform cards.
+
+  The report form is unchanged: characteristics are looked up by platform name at analysis time. The web
+  app's sample generator now plants profile-driven effects (link and jamming resistance set the EW penalty;
+  armor and signature drive survival; armor and reach make maintenance harder), so its sample data no
+  longer matches the desktop app's generator.
 
 ## Files
 
@@ -67,7 +75,8 @@ one-time backup copy saved next to it first.
 | `app.py` | The three pages and the app shell |
 | `data.py` | Catalog, answer options and their colors, database (ported from v3), sample-data generator (v3's, level 1 only) |
 | `graphs.py` | The Graphs page |
-| `lab.py` | The Lab page: forecast for a new system built from a known one (random forest, scikit-learn) |
+| `lab.py` | The Lab page: design a system and forecast six outcomes (scikit-learn models, three.js hologram) |
+| `profiles.py` | Estimated capability profile for every catalog platform (illustrative, replace with sourced values) |
 | `analyst_base.html` | Analyst console page with the 3D models baked in (rebuild with `python build_analyst.py "..\\FieldReport\\html"`) |
 | `widgets.py` | Color-coded answer buttons, colored dropdowns, badges, page styling |
 | `.streamlit/config.toml` | Dark theme |

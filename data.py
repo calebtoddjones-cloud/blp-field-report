@@ -98,13 +98,6 @@ CATALOG = {
 }
 PLATFORM_INFO = {n: (c, o) for c, items in CATALOG.items() for n, o in items}
 
-# How sensitive each category is to enemy EW (used only to pattern the sample data).
-EW_SENSITIVITY = {
-    "Loitering / Strike UAS": 0.8, "FPV / Small Strike UAS": 1.0, "Recon / ISR UAS": 0.9,
-    "Counter-UAS": 0.4, "EW / C2 / Comms": 0.6, "Precision Munitions": 0.5,
-    "Rockets / Missiles": 0.3,
-}
-
 # ---------------------------------------------------------------------------
 # Questionnaire options (wording and stored values copied from field_report_app_v3.py).
 # Plain lists = neutral dropdowns. Lists of (value, color[, label]) = colored answers,
@@ -428,21 +421,50 @@ SAMPLE_SECTOR_WEIGHTS = {
     "Black Sea / Odesa": 0.5, "Northern border (Sumy)": 0.4}
 
 
+# PLANTED patterns for the sample data, driven by each platform's estimated profile (profiles.py).
+# How much enemy EW hurts a platform depends on its guidance / control link, cut by its jamming resistance.
+LINK_EW = {"None / unguided": 0.05, "Radio data link": 1.0, "Inertial / GPS": 0.7, "Wire / fiber-optic": 0.05,
+           "Radar": 0.45, "IR / EO seeker": 0.25, "Laser": 0.15, "Satcom": 0.5}
+
+
+def _profile(name, cat):
+    import profiles as P
+    return P.profile(name, cat, CATALOG)[0]
+
+
+def ew_sensitivity(name, cat):
+    pr = _profile(name, cat)
+    return LINK_EW.get(pr["link"], 0.5) * (1 - 0.35 * pr["ew_hardening"])
+
+
 def generate_sample_data(conn, n=150, seed=None):
-    """SYNTHETIC. Enemy EW lowers results for EW-sensitive categories and causes more comms / EW
-    malfunctions. Each platform gets its own result and ratings; about 1 report in 4 skips the
-    optional adversary section."""
+    """SYNTHETIC, with PLANTED patterns (they test the analysis; they are not findings):
+    - enemy EW lowers effectiveness by link type (radio links most, fiber-optic and unguided almost not),
+      less for jamming-resistant systems, and causes more comms / EW malfunctions;
+    - enemy air defense lowers effectiveness of airborne platforms, more for larger signatures;
+    - platform survival rises with protection and falls with signature; crew survival rises with protection
+      (uncrewed systems: high); maintenance gets harder with protection and reach; hard-to-hit falls with
+      signature; loss risk rises as survival falls.
+    Each platform gets its own result and ratings; about 1 report in 4 skips the optional adversary section."""
     rng = random.Random(seed)
     items = conn.execute("SELECT name, category FROM weapons").fetchall()
     ew_idx = {"Unknown": 0, "None": 0, "Low": 1, "Medium": 2, "High": 3}
+    ad_idx = {"Unknown": 0, "None": 0, "Low": 1, "Medium": 2, "High": 3}
 
     def rate(base):
         return max(1, min(5, round(base + rng.gauss(0, 0.8))))
 
     for _ in range(n):
         picks = rng.sample(items, rng.choice([1, 1, 2, 3]))
-        sens_mean = sum(EW_SENSITIVITY.get(c, 0.1) for _, c in picks) / len(picks)
+        sens_mean = sum(ew_sensitivity(nm, c) for nm, c in picks) / len(picks)
         ew = rng.choice(["None", "Low", "Medium", "High"])
+        enemy = {"enemy_type": rng.choice(ENEMY_TYPES),
+                 "enemy_strength": rng.choice(values(ENEMY_STRENGTH)),
+                 "ad_level": rng.choice(values(THREAT)),
+                 "enemy_adaptation": rng.choice(values(ENEMY_ADAPT))}
+        if rng.random() < 0.25:
+            enemy = {k: None for k in ADVERSARY_KEYS}
+        ad = ad_idx.get(enemy["ad_level"] or "Unknown", 0)
         p_mal = 0.12 + 0.13 * ew_idx[ew] * sens_mean
         mals = [MAL_NONE]
         if rng.random() < p_mal:
@@ -453,18 +475,25 @@ def generate_sample_data(conn, n=150, seed=None):
         has_mal = mals != [MAL_NONE]
         plat_rows, scores = [], []
         for name, cat in picks:
-            sens = EW_SENSITIVITY.get(cat, 0.1)
-            score = 4.4 - 0.6 * ew_idx[ew] * sens * 1.6 + rng.gauss(0, 0.7)
+            pr = _profile(name, cat)
+            air = pr["mobility"] == "Airborne"
+            score = (4.4 - 0.96 * ew_idx[ew] * ew_sensitivity(name, cat)
+                     - (0.16 * ad * (1 + pr["signature"]) if air else 0) + rng.gauss(0, 0.7))
             scores.append(score)
             eff = max(1, min(5, round(score)))
-            status = ("Performed as expected" if eff >= 4 else "Degraded but usable" if eff == 3
-                      else STATUS_LOST if rng.random() < 0.4 else "Failed to perform")
+            surv = 3.2 + 0.55 * pr["protection"] - 0.45 * pr["signature"] + 0.25 * (eff - 3) - (0.12 * ad if air else 0)
+            crew = 4.6 if pr["crew"] == 0 else 2.9 + 0.6 * pr["protection"] - 0.2 * pr["signature"] + 0.15 * (eff - 3)
+            ease = 4.1 - 0.45 * pr["protection"] - 0.25 * pr["reach"] - (1 if has_mal else 0)
+            hard = (4.0 - 0.75 * pr["signature"] + (0.4 if pr["mobility"] in ("Airborne", "Naval", "Munition") else 0)
+                    - (0.3 if pr["mobility"] == "Towed / emplaced" else 0))
+            lost = rng.random() < max(0.02, min(0.6, 0.06 + 0.11 * (3.4 - surv)))
+            status = (STATUS_LOST if lost else "Performed as expected" if eff >= 4 else
+                      "Degraded but usable" if eff == 3 else "Failed to perform")
             plat_rows.append({
                 "platform": name, "platform_status": status, "effectiveness": eff,
-                "rating_ease": max(1, rate(eff) - 1) if has_mal else rate(eff),
-                "rating_sustainment": rate(eff), "rating_survivability": rate(eff),
-                "rating_crew_survivability": rate(eff), "rating_lethality": rate(eff),
-                "rating_hard_to_hit": rate(eff), "field_modified": int(rng.random() < 0.25)})
+                "rating_ease": rate(ease), "rating_sustainment": rate(eff), "rating_survivability": rate(surv),
+                "rating_crew_survivability": rate(crew), "rating_lethality": rate(eff),
+                "rating_hard_to_hit": rate(hard), "field_modified": int(rng.random() < 0.25)})
         mean_eff = max(1, min(5, round(sum(scores) / len(scores))))
         impact_vals = values(MAL_IMPACT)
         impact = (rng.choice(impact_vals[1:]) if has_mal and mean_eff <= 3
@@ -479,12 +508,6 @@ def generate_sample_data(conn, n=150, seed=None):
                 driver = "Equipment performance / malfunction"
             else:
                 driver = rng.choice(values(OUTCOME_DRIVERS))
-        enemy = {"enemy_type": rng.choice(ENEMY_TYPES),
-                 "enemy_strength": rng.choice(values(ENEMY_STRENGTH)),
-                 "ad_level": rng.choice(values(THREAT)),
-                 "enemy_adaptation": rng.choice(values(ENEMY_ADAPT))}
-        if rng.random() < 0.25:
-            enemy = {k: None for k in ADVERSARY_KEYS}
         enemy["ew_level"] = ew
         rec = {
             "report_date": (date.today() - timedelta(days=rng.randint(0, 60))).isoformat(),
