@@ -60,8 +60,9 @@ one-time backup copy saved next to it first.
   show up as trade-offs. Panels: 3D hologram of the base system, status bar, trade-off profile (original → design
   arrows), stat modifiers (waterfall), sweet spot finder (mission-priority weights; sweep one characteristic or
   a two-way heatmap, with original, design and best marked), trade space (every reported system under the chosen conditions), nearest real systems with an
-  extrapolation alert, three effectiveness models side by side, EW stress test, sensitivity, a session
-  "hangar" of saved designs, and a trust panel (holdout error vs baseline per outcome, split by report,
+  extrapolation alert, a confidence reading from the forest's tree spread, EW stress test, sensitivity, a session
+  "hangar" of saved designs, and a trust panel (holdout error vs baseline per outcome, the forest compared with a single tree and a
+  straight-line model, split by report,
   seed 42, plus a planted-pattern check on synthetic data). Needs at least 60 rated platform cards.
 
   The report form is unchanged: characteristics are looked up by platform name at analysis time. The web

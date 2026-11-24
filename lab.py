@@ -9,8 +9,9 @@ How it works
   each: effectiveness, platform survival, crew survival, ease of maintenance, how hard to hit (all 1-5 ratings
   the form already collects) and loss risk (platform status "Lost / destroyed"). Ratings are outcomes here,
   never inputs.
-- Effectiveness gets three models side by side: decision tree, random forest (200 trees, the main forecast)
-  and ridge regression with class x condition and link x EW interactions (alpha fixed, not tuned).
+- One model drives every forecast: a random forest per outcome (200 trees for effectiveness). Its 10-90%
+  tree spread is shown as the forecast's confidence. A decision tree and a ridge regression (class x condition
+  and link x EW interactions, alpha fixed) are trained only for comparison in the trust panel.
 - Holdout split is by REPORT (seed 42); every model is compared with a trivial baseline (the average, or the
   base rate for loss). The models you play with are the ones that were tested.
 - A new design = the base platform's profile with any characteristic changed, plus origin, field-modified and
@@ -50,7 +51,7 @@ from graphs import FG, style
 SEED = 42
 MIN_CARDS = 60          # below this the page asks for more reports instead of training
 THIN_CLASS = 20         # fewer cards than this in a class -> "thin data" warning
-AGREE = 0.35            # three models within this many points of each other -> "agree"
+CONF_BANDS = [(0.9, "HIGH"), (1.5, "MEDIUM")]   # 80% tree range (points) up to this -> label; wider = LOW
 FAR = 0.22              # mean profile distance to the nearest reported system above this -> extrapolation
 RIDGE_ALPHA = 10.0      # fixed, not tuned
 TARGET = "p_effectiveness"
@@ -75,9 +76,6 @@ COND_LABELS = {"ew_level": "Enemy EW / jamming", "ad_level": "Enemy air defense"
 LEVELS = [v for v in D.values(D.THREAT) if v != "Unknown"]          # None, Low, Medium, High
 ORIGINS = ["U.S.", "Ukraine", "Other partner"]
 MODEL_NAMES = ["Decision tree", "Random forest", "Ridge + interactions"]
-MODEL_BLURB = {"Decision tree": "one set of yes/no questions",
-               "Random forest": "200 trees averaged · main forecast",
-               "Ridge + interactions": "straight-line effects, class × condition"}
 
 # HUD palette: cyan for the new system, steel for the base, amber for the blended class.
 CYAN, STEEL, AMBER = "#3ee0ff", "#9aa7b4", "#e3b93c"
@@ -202,19 +200,6 @@ def _predict(model, tgt, rows, alt_rows=None, w=0.0):
 
 def _profile_all(model, row, alt_row=None, w=0.0):
     return {t: float(_predict(model, t, [row], [alt_row] if alt_row else None, w)[0]) for t in OUTCOMES}
-
-
-def _all_three(model, row, alt_row=None, w=0.0):
-    """One effectiveness prediction from each of the three models for a single scenario."""
-    out = {}
-    for name in MODEL_NAMES:
-        pipe = model["three"][name]
-        prep = _prep_lin if name.startswith("Ridge") else _prep
-        v = float(np.clip(pipe.predict(prep(pd.DataFrame([row])))[0], 1, 5))
-        if alt_row is not None and w > 0:
-            v = (1 - w) * v + w * float(np.clip(pipe.predict(prep(pd.DataFrame([alt_row])))[0], 1, 5))
-        out[name] = v
-    return out
 
 
 def _distance(a, b):
@@ -682,9 +667,9 @@ def render(conn):
     out_new = _profile_all(model, new_row, alt_row, w)
     out_ref = _profile_all(model, ref_row)
     out_new[TARGET], out_ref[TARGET] = m_new, m_ref
-    three = _all_three(model, new_row, alt_row, w)
-    spread = max(three.values()) - min(three.values())
-    agree = spread < AGREE
+    rng80 = hi_new - lo_new
+    conf = next((lbl for lim, lbl in CONF_BANDS if rng80 <= lim), "LOW")
+    conf_col = {"HIGH": D.GREEN, "MEDIUM": D.YELLOW, "LOW": D.ORANGE}[conf]
 
     # nearest reported systems by profile (+ same class bonus), and the extrapolation alert
     rep = cards.groupby("platform").agg(n=("id", "size"), category=("category", "first")).reset_index()
@@ -707,7 +692,7 @@ def render(conn):
     with status, st.container(key="hud_status"):
         t = st.columns(5)
         t[0].html(_status_tile(f"{(name or 'New system')[:24]} · effect.", f"{m_new:.1f}", _eff_color(m_new),
-                               f"80% of trees {lo_new:.1f}–{hi_new:.1f}"))
+                               "forecast, 1–5"))
         t[1].html(_status_tile(f"{base} as fielded", f"{m_ref:.1f}", STEEL, f"change {_delta_html(TARGET, m_new - m_ref)}"))
         s_new, s_ref = out_new["p_rating_survivability"], out_ref["p_rating_survivability"]
         t[2].html(_status_tile("Platform survival", _fmt("p_rating_survivability", s_new),
@@ -716,8 +701,8 @@ def render(conn):
         l_new, l_ref = out_new["lost"], out_ref["lost"]
         t[3].html(_status_tile("Loss risk", _fmt("lost", l_new), _outcome_color("lost", l_new),
                                f"vs base {_delta_html('lost', l_new - l_ref)}"))
-        t[4].html(_status_tile("Three models", "AGREE" if agree else "SPLIT", D.GREEN if agree else D.ORANGE,
-                               f"spread {spread:.2f} pts"))
+        t[4].html(_status_tile("Confidence", conf, conf_col,
+                               f"80% of trees agree on {lo_new:.1f}–{hi_new:.1f}"))
         line = (f"CONDITIONS · EW {cond['ew_level']} · AIR DEFENSE {cond['ad_level']} · {cond['time_of_day']} · "
                 f"{cond['weather']} · {cond['terrain']}")
         if far:
@@ -952,26 +937,8 @@ def render(conn):
                 st.caption("Profile match compares the seven estimated characteristics. Open these systems' reports "
                            "in the Report database to check the forecast against what units said.")
 
-        # ---------------- three models
-        _h(10, "Three models", "independent effectiveness forecasts")
-        with st.container(key="hud_three"):
-            cols = st.columns(3)
-            for col, nm in zip(cols, MODEL_NAMES):
-                v = three[nm]
-                col.html(f"<div class='pod'><div class='t'>{nm}</div>"
-                         f"<div class='v' style='color:{_eff_color(v)}'>{v:.1f}</div>{_bar(v, _eff_color(v))}"
-                         f"<div class='d'>{MODEL_BLURB[nm]}<br>avg miss on unseen reports "
-                         f"{model['mae'][nm]:.2f}</div></div>")
-            col = D.GREEN if agree else D.ORANGE
-            st.html(f"<div class='verdict' style='color:{col};border:1px solid {col}66;background:{col}14'>"
-                    + (f"▲ MODELS AGREE · spread {spread:.2f} pts" if agree else
-                       f"▲ MODELS DISAGREE · spread {spread:.2f} pts: treat this forecast as uncertain")
-                    + "</div>")
-            st.caption("The straight-line model cannot bend, so it misses sweet spots and curves that the tree and "
-                       "forest can follow. When only it disagrees, a curved effect is a likely reason.")
-
         # ---------------- stress test
-        _h(11, "Stress test", "enemy jamming from none to high")
+        _h(10, "Stress test", "enemy jamming from none to high")
         sweep = lambda r: [{**r, "ew_level": lv} for lv in LEVELS]
         fig = go.Figure()
         series = [(name or "New system", _forecast(model, sweep(new_row), blend(sweep(new_row)), w), CYAN),
@@ -1004,7 +971,7 @@ def render(conn):
                    "trees land. Try a different guidance link or more jamming resistance and watch the gap.")
 
         # ---------------- sensitivity
-        _h(12, "Sensitivity", "which conditions matter most")
+        _h(11, "Sensitivity", "which conditions matter most")
         rows = []
         for f, label in COND_LABELS.items():
             opts = LEVELS if f in ("ew_level", "ad_level") else (
@@ -1027,7 +994,7 @@ def render(conn):
         st.caption("Each bar: one condition run through all its options, others held as set (red = worst, green = best).")
 
         # ---------------- hangar
-        _h(13, "Hangar", "saved designs, ranked")
+        _h(12, "Hangar", "saved designs, ranked")
         with st.container(key="hud_hangar"):
             hangar = st.session_state.setdefault("lab_hangar", [])
             b1, b2, _ = st.columns([1.3, 1, 2])
@@ -1073,7 +1040,7 @@ def render(conn):
                            "them side by side.")
 
         # ---------------- trust
-        _h(14, "Can you trust it?")
+        _h(13, "Can you trust it?")
         with st.container(key="hud_trust"):
             sc = model["scores"]
             body = "".join(
@@ -1085,8 +1052,21 @@ def render(conn):
                     f"<th>Better by</th><th>Error</th></tr>{body}</table>")
             st.caption(f"Tested on {model['n_test']} platform cards from {model['reports_test']} reports none of the "
                        "models saw (split by report, seed 42). Baseline = always guessing the average (loss: the "
-                       "base rate). Lower error is better. Effectiveness, three models: "
-                       + ", ".join(f"{k.lower()} {v:.2f}" for k, v in model["mae"].items()) + ".")
+                       "base rate). Lower error is better.")
+            mae = model["mae"]
+            base_mae = mae["Guess the average"]
+            rows_m = [("Random forest (used for every forecast)", mae["Random forest"]),
+                      ("Decision tree (one tree, for comparison)", mae["Decision tree"]),
+                      ("Straight-line model (ridge, for comparison)", mae["Ridge + interactions"]),
+                      ("Guess the average (baseline)", base_mae)]
+            st.html("<table class='hangar'><tr><th>Effectiveness model</th><th>Avg miss</th><th>Better by</th></tr>"
+                    + "".join(f"<tr><td>{html.escape(n)}</td><td class='n'>{v:.2f}</td>"
+                              f"<td class='n' style='color:{D.GREEN if v < base_mae else HUD_DIM}'>"
+                              f"{(1 - v / base_mae) if base_mae else 0:+.0%}</td></tr>" for n, v in rows_m)
+                    + "</table>")
+            st.caption("Why one model: the forest can follow curves and sweet spots that the straight-line model cannot, "
+                       "and averaging 200 trees is steadier than one tree. The table shows how they compare on this "
+                       "data. Confidence (top) comes from how much the forest's 200 trees agree with each other.")
             if synthetic:
                 # does the model recover what the generator planted?
                 ref = {**ref_row}
