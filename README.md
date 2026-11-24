@@ -57,16 +57,18 @@ one-time backup copy saved next to it first.
   Also: origin, field-modified, and "behaves partly like another class" (an analyst assumption that blends
   two classes' forecasts). Separate models forecast effectiveness, platform survival, crew survival, ease of
   maintenance, how hard it is to hit and loss risk (all from questions the form already asks), so changes
-  show up as trade-offs. Panels: 3D hologram of the base system, status bar, trade-off profile, stat
-  modifiers, trade space (every reported system under the chosen conditions), nearest real systems with an
+  show up as trade-offs. Panels: 3D hologram of the base system, status bar, trade-off profile (original → design
+  arrows), stat modifiers (waterfall), sweet spot finder (mission-priority weights; sweep one characteristic or
+  a two-way heatmap, with original, design and best marked), trade space (every reported system under the chosen conditions), nearest real systems with an
   extrapolation alert, three effectiveness models side by side, EW stress test, sensitivity, a session
   "hangar" of saved designs, and a trust panel (holdout error vs baseline per outcome, split by report,
   seed 42, plus a planted-pattern check on synthetic data). Needs at least 60 rated platform cards.
 
   The report form is unchanged: characteristics are looked up by platform name at analysis time. The web
   app's sample generator now plants profile-driven effects (link and jamming resistance set the EW penalty;
-  armor and signature drive survival; armor and reach make maintenance harder), so its sample data no
-  longer matches the desktop app's generator.
+  armor and signature drive survival with diminishing returns; armor makes maintenance harder, faster at
+  the heavy end; planted sweet spots: armor helps effectiveness up to light/medium then hurts at heavy, reach
+  peaks at medium), so its sample data no longer matches the desktop app's generator.
 
 ## Files
 

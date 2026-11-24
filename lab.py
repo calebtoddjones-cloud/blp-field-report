@@ -449,8 +449,8 @@ def _eff_color(v):
     return D.SCALE_5[int(min(4, max(0, round(v) - 1)))]
 
 
-def _hud_fig(fig, height):
-    style(fig, height=height)
+def _hud_fig(fig, height, legend=True):
+    style(fig, height=height, legend=legend)
     fig.update_layout(font=dict(family="JetBrains Mono, Consolas, monospace", color=FG, size=12),
                       legend=dict(bgcolor="rgba(8,12,17,.7)", bordercolor=HUD_LINE, borderwidth=1))
     fig.update_xaxes(gridcolor=HUD_GRID, zerolinecolor=HUD_GRID, linecolor=HUD_LINE)
@@ -511,6 +511,52 @@ def _delta_html(tgt, delta):
 
 def _outcome_color(tgt, v):
     return _eff_color(5 - v * 8) if tgt == "lost" else _eff_color(v)   # 0% loss -> green, 50%+ -> red
+
+
+PRIORITY_DEFAULTS = {"p_effectiveness": 40, "p_rating_survivability": 20, "p_rating_crew_survivability": 15,
+                     "p_rating_ease": 10, "p_rating_hard_to_hit": 5, "lost": 10}
+
+
+def _goodness(tgt, v):
+    """Outcome on a common 0-100 'better' scale: ratings 1-5 -> 0-100; loss risk 0% -> 100, 50%+ -> 0."""
+    v = np.asarray(v, dtype=float)
+    g = 100 * (1 - np.clip(v / 0.5, 0, 1)) if tgt == "lost" else 100 * np.clip((v - 1) / 4, 0, 1)
+    return float(g) if g.ndim == 0 else g
+
+
+def _overall(model, rows, alt_rows, w, weights):
+    """Mission-weighted overall score (0-100) for many rows."""
+    total = np.zeros(len(rows))
+    for t, wt in weights.items():
+        if wt and t in model["fits"]:
+            total += wt * _goodness(t, _predict(model, t, rows, alt_rows, w))
+    return total
+
+
+def _mark(fig, xr, yr, xn, yn, xb, yb, base, name, heat=False):
+    """Original (steel ring), your design (cyan diamond), sweet spot (gold star), arrow original -> design."""
+    fig.add_trace(go.Scatter(x=[xr], y=[yr], mode="markers+text", text=["original"], textposition="bottom center",
+                             textfont=dict(color=STEEL, size=11), showlegend=False, hoverinfo="skip",
+                             marker=dict(size=20, color="rgba(0,0,0,0)", line=dict(color=STEEL, width=3))))
+    fig.add_trace(go.Scatter(x=[xb + (0.34 if heat else 0)], y=[yb + (0.3 if heat else 0)], mode="markers",
+                             showlegend=False, hoverinfo="skip",
+                             marker=dict(size=17 if heat else 22, symbol="star", color=D.YELLOW,
+                                         line=dict(color="#0f1318", width=1))))
+    fig.add_trace(go.Scatter(x=[xn], y=[yn], mode="markers+text", text=[name or "your design"], textposition="top center",
+                             textfont=dict(color=CYAN, size=12), showlegend=False, hoverinfo="skip",
+                             marker=dict(size=16, symbol="diamond", color=CYAN, line=dict(color="#fff", width=1.5))))
+    if (xr, yr) != (xn, yn):
+        fig.add_annotation(x=xn, y=yn, ax=xr, ay=yr, xref="x", yref="y", axref="x", ayref="y", showarrow=True,
+                           arrowhead=3, arrowsize=1.3, arrowwidth=2.5, standoff=11, startstandoff=11,
+                           arrowcolor=CYAN)
+
+
+def _legend_html(best=False):
+    return (f"<div class='cond-line' style='border:0'>"
+            f"<span style='color:{STEEL}'>○ original</span> &nbsp;·&nbsp; <span style='color:{CYAN}'>◆ your design"
+            f"</span> &nbsp;·&nbsp; <span style='color:{CYAN}'>→ the change</span> &nbsp;·&nbsp; "
+            f"<span style='color:{D.GREEN}'>▲ better</span> / <span style='color:{D.RED}'>▼ worse</span>"
+            + (f" &nbsp;·&nbsp; <span style='color:{D.YELLOW}'>★ sweet spot</span>" if best else "") + "</div>")
 
 
 def render(conn):
@@ -679,67 +725,177 @@ def render(conn):
         st.html(f"<div class='cond-line'>{line}</div>")
 
     with right:
-        # ---------------- trade-off profile
-        _h(5, "Trade-off profile", "new design vs base, every outcome the form collects")
+        # ---------------- trade-off profile (dumbbell: original -> new on one "better" axis)
+        _h(5, "Trade-off profile", "original → your design")
         with st.container(key="hud_profile"):
-            rows_html = ""
+            fig_p = go.Figure()
+            labels = []
             for tgt, (lbl, short, hib) in OUTCOMES.items():
                 vn, vr = out_new[tgt], out_ref[tgt]
                 if np.isnan(vn):
                     continue
-                bar_v = (lambda v: 1 + 4 * min(1, v / 0.5)) if tgt == "lost" else (lambda v: v)
-                rows_html += (f"<tr><td><b>{lbl}</b><br><span class='sm'>{'lower is better' if not hib else '1–5'}"
-                              f"</span></td><td style='width:30%'>{_bar(bar_v(vr), STEEL)}"
-                              f"<span class='sm'>base {_fmt(tgt, vr)}</span></td>"
-                              f"<td style='width:30%'>{_bar(bar_v(vn), _outcome_color(tgt, vn))}"
-                              f"<span class='sm'>new {_fmt(tgt, vn)}</span></td>"
-                              f"<td class='n'>{_delta_html(tgt, vn - vr)}</td></tr>")
-            st.html(f"<table class='hangar'><tr><th>Outcome</th><th>{html.escape(base)}</th>"
-                    f"<th>{html.escape(name or 'New')}</th><th>Change</th></tr>{rows_html}</table>")
-            st.caption("Each outcome has its own model, trained on the reports that answered it. Green ▲ = better, "
-                       "red ▼ = worse. A forecast of what units would report, under the conditions set.")
+                gn, gr = _goodness(tgt, vn), _goodness(tgt, vr)
+                g = _good(tgt, vn - vr)
+                col = D.GREEN if g > 0 else D.RED if g < 0 else HUD_DIM
+                y = f"{lbl}  ({_fmt(tgt, vr)} → {_fmt(tgt, vn)})"
+                labels.append(y)
+                fig_p.add_trace(go.Scatter(x=[gr], y=[y], mode="markers", showlegend=False,
+                                           marker=dict(size=13, color="rgba(0,0,0,0)", line=dict(color=STEEL, width=2.5)),
+                                           hovertemplate=f"{html.escape(base)}: {_fmt(tgt, vr)}<extra>{lbl}</extra>"))
+                fig_p.add_trace(go.Scatter(x=[gn], y=[y], mode="markers", showlegend=False,
+                                           marker=dict(size=15, color=CYAN, symbol="diamond", line=dict(color="#fff", width=1)),
+                                           hovertemplate=f"{html.escape(name or 'New')}: {_fmt(tgt, vn)}<extra>{lbl}</extra>"))
+                if abs(gn - gr) > 0.4:
+                    fig_p.add_annotation(x=gn, y=y, ax=gr, ay=y, xref="x", yref="y", axref="x", ayref="y",
+                                         showarrow=True, arrowhead=3, arrowsize=1.2, arrowwidth=2.5, arrowcolor=col,
+                                         standoff=9, startstandoff=7)
+                fig_p.add_annotation(x=136, y=y, xref="x", yref="y", text=_delta_html(tgt, vn - vr),
+                                     showarrow=False, xanchor="right", font=dict(size=13))
+            fig_p.add_vline(x=106, line=dict(color=HUD_GRID, width=1))
+            fig_p.update_xaxes(range=[-3, 138], title="Worse ←   outcome on a common 0–100 scale   → Better",
+                               tickvals=[0, 25, 50, 75, 100])
+            fig_p.update_yaxes(autorange="reversed", categoryorder="array", categoryarray=labels)
+            st.plotly_chart(_hud_fig(fig_p, 300, legend=False), width="stretch", config={"displayModeBar": False})
+            st.html(_legend_html())
+            st.caption("Each outcome has its own model. Ratings (1–5) and loss risk (0–50%+) are put on one 0–100 "
+                       "'better' scale so the arrows compare; real values are in the labels.")
 
-        # ---------------- stat modifiers
-        _h(6, "Stat modifiers", "what each change does, one at a time")
+        # ---------------- stat modifiers (waterfall: original + each change = your design)
+        _h(6, "Stat modifiers", "original + each change")
         with st.container(key="hud_modifiers"):
-            steps, row = [], dict(ref_row)
-            prev = {t: out_ref[t] for t in (TARGET, "p_rating_survivability", "lost")}
+            wf_t = st.segmented_control("Outcome", [TARGET, "p_rating_survivability", "p_rating_crew_survivability",
+                                                    "p_rating_ease", "lost"],
+                                        format_func=lambda t: OUTCOMES[t][0], default=TARGET, key="lab_wf_t") or TARGET
+            steps, row, prev = [], dict(ref_row), out_ref[wf_t]
 
-            def step(label, new_row_):
-                vals = {t: float(_predict(model, t, [new_row_])[0]) if t != TARGET
-                        else float(_forecast(model, [new_row_])[0][0]) for t in prev}
-                steps.append((label, {t: vals[t] - prev[t] for t in prev}))
-                prev.update(vals)
+            def val(r):
+                return float(_forecast(model, [r])[0][0]) if wf_t == TARGET else float(_predict(model, wf_t, [r])[0])
             for k in changed:
                 row = {**row, k: prof[k]}
-                step(f"{P.ATTRS[k][0]}: {P.label(k, prof[k])}", row)
+                v = val(row); steps.append((f"{P.ATTRS[k][0].split(' (')[0]}: {P.label(k, prof[k])}", v - prev)); prev = v
             if origin != base_origin:
                 row = {**row, "origin": origin}
-                step(f"Origin: {origin}", row)
+                v = val(row); steps.append((f"Origin: {origin}", v - prev)); prev = v
             if field_mod:
                 row = {**row, "p_field_modified": 1}
-                step("Field-modified build", row)
+                v = val(row); steps.append(("Field-modified", v - prev)); prev = v
             if has_alt and w > 0:
-                steps.append((f"Behaves {int(w * 100)}% like {alt_cat}",
-                              {TARGET: m_new - prev[TARGET],
-                               "p_rating_survivability": out_new["p_rating_survivability"] - prev["p_rating_survivability"],
-                               "lost": out_new["lost"] - prev["lost"]}))
-            body = "".join(f"<tr><td>{html.escape(lbl)}</td>" + "".join(
-                f"<td class='n'>{_delta_html(t, d[t])}</td>" for t in (TARGET, "p_rating_survivability", "lost"))
-                + "</tr>" for lbl, d in steps)
-            if not body:
-                body = "<tr><td colspan=4 class='sm'>Stock build: change a characteristic or the build to see modifiers.</td></tr>"
-            st.html(f"<table class='hangar'><tr><th>Change</th><th>Effect.</th><th>Survival</th><th>Loss risk</th></tr>"
-                    f"<tr><td class='sm'>{html.escape(base)} as fielded</td><td class='n'>{m_ref:.2f}</td>"
-                    f"<td class='n'>{out_ref['p_rating_survivability']:.2f}</td><td class='n'>{out_ref['lost']:.0%}</td></tr>"
-                    f"{body}<tr class='tot'><td><b>{html.escape(name or 'New system')}</b></td>"
-                    f"<td class='n'>{m_new:.2f}</td><td class='n'>{out_new['p_rating_survivability']:.2f}</td>"
-                    f"<td class='n'>{out_new['lost']:.0%}</td></tr></table>")
-            st.caption("Each line adds one change to the line above and shows how much the forecasts move. The "
-                       "order matters a little, because effects can interact.")
+                steps.append((f"{int(w * 100)}% like {alt_cat}", out_new[wf_t] - prev))
+            scale = 100 if wf_t == "lost" else 1
+            unit = " pts" if wf_t == "lost" else ""
+            hib = OUTCOMES[wf_t][2]
+            up, down = (D.GREEN, D.RED) if hib else (D.RED, D.GREEN)
+            xs_w = [f"{base} (original)"] + [s_[0] for s_ in steps] + [name or "New system"]
+            run_, bases, heights, cols, texts = out_ref[wf_t] * scale, [0.0], [out_ref[wf_t] * scale], [STEEL], \
+                [f"{out_ref[wf_t] * scale:.2f}{unit}"]
+            for _, d_ in steps:
+                d_ *= scale
+                bases.append(min(run_, run_ + d_)); heights.append(abs(d_) or 0.002 * scale)
+                cols.append(up if d_ > 0 else down if d_ < 0 else HUD_DIM); texts.append(f"{d_:+.2f}{unit}")
+                run_ += d_
+            bases.append(0.0); heights.append(out_new[wf_t] * scale); cols.append(CYAN)
+            texts.append(f"{out_new[wf_t] * scale:.2f}{unit}")
+            fig_w = go.Figure(go.Bar(x=xs_w, y=heights, base=bases, marker=dict(color=cols, line=dict(color="#0f1318", width=1)),
+                                     text=texts, textposition="outside", textfont=dict(color=FG, size=12),
+                                     hoverinfo="skip", cliponaxis=False))
+            lvl = out_ref[wf_t] * scale
+            for i_, (_, d_) in enumerate(steps + [("", 0)]):
+                fig_w.add_shape(type="line", x0=i_ + 0.4, x1=i_ + 0.6, y0=lvl, y1=lvl, line=dict(color=HUD_LINE, dash="dot"))
+                lvl += d_ * scale
+            lo_ = min([out_ref[wf_t], out_new[wf_t]] + [out_ref[wf_t] + sum(s_[1] for s_ in steps[:i + 1])
+                                                        for i in range(len(steps))]) * scale
+            hi_ = max([out_ref[wf_t], out_new[wf_t]] + [out_ref[wf_t] + sum(s_[1] for s_ in steps[:i + 1])
+                                                        for i in range(len(steps))]) * scale
+            pad = max(0.15 * scale if wf_t != "lost" else 2, (hi_ - lo_) * 0.6)
+            fig_w.update_yaxes(range=[max(0, lo_ - pad), hi_ + pad], title=OUTCOMES[wf_t][0] + (" (%)" if wf_t == "lost" else ""))
+            fig_w.update_layout(showlegend=False)
+            st.plotly_chart(_hud_fig(fig_w, 320, legend=False), width="stretch", config={"displayModeBar": False})
+            st.caption(("No changes yet: set a characteristic, origin, build or class blend to see each one's effect. "
+                        if not steps else "")
+                       + "Start at the original, add one change at a time, end at your design. Green = better, red = "
+                         "worse. The order matters a little, because effects can interact.")
+
+        # ---------------- sweet spot finder
+        _h(7, "Sweet spot finder", "where more stops helping")
+        with st.container(key="hud_sweet"):
+            st.caption("Mission priorities (how much each outcome counts in the overall score)")
+            wcols = st.columns(len(PRIORITY_DEFAULTS))
+            weights = {t: wcols[i].slider(OUTCOMES[t][1], 0, 100, v, step=5, key=f"lab_wt_{t}")
+                       for i, (t, v) in enumerate(PRIORITY_DEFAULTS.items())}
+            tot = sum(weights.values()) or 1
+            weights = {t: v / tot for t, v in weights.items()}
+            s_new = _overall(model, [new_row], blend([new_row]), w, weights)[0]
+            s_ref = _overall(model, [ref_row], None, 0, weights)[0]
+            ds = round(s_new - s_ref) + 0
+            dcol = D.GREEN if ds > 0 else D.RED if ds < 0 else HUD_DIM
+            st.html(f"<div class='cond-line'>OVERALL SCORE · {html.escape(base)} {s_ref:.0f} → "
+                    f"<b style='color:{CYAN}'>{html.escape(name or 'New system')} {s_new:.0f}</b> · "
+                    f"<b style='color:{dcol}'>{'▲' if ds > 0 else '▼' if ds < 0 else '■'} {ds:+d}</b></div>")
+            tab1, tab2 = st.tabs(["One characteristic", "Two at once (heatmap)"])
+            with tab1:
+                attr = st.selectbox("Characteristic", P.ORDER, format_func=lambda k: P.ATTRS[k][0],
+                                    key="lab_sweet_attr")
+                opts = list(range(len(P.ATTRS[attr][1]))) if attr in P.ORDINAL else P.CHOICES[attr]
+                names = P.ATTRS[attr][1] if attr in P.ORDINAL else P.CHOICES[attr]
+                rows_s = [{**new_row, attr: o} for o in opts]
+                sc_ = _overall(model, rows_s, blend(rows_s), w, weights)
+                eff_ = _predict(model, TARGET, rows_s, blend(rows_s), w)
+                i_new = opts.index(prof[attr]); i_ref = opts.index(base_prof[attr]); i_best = int(np.argmax(sc_))
+                xs = list(range(len(opts)))
+                fig_s = go.Figure()
+                if attr in P.ORDINAL:
+                    fig_s.add_trace(go.Scatter(x=xs, y=sc_, mode="lines+markers", name="Overall score",
+                                               line=dict(color=CYAN, width=3, shape="spline"),
+                                               marker=dict(size=8, color=CYAN), hovertemplate="%{y:.0f}<extra></extra>"))
+                else:
+                    fig_s.add_trace(go.Bar(x=xs, y=sc_, name="Overall score", marker=dict(
+                        color=[CYAN if i == i_new else "rgba(62,224,255,.28)" for i in xs]),
+                        hovertemplate="%{y:.0f}<extra></extra>"))
+                fig_s.add_trace(go.Scatter(x=xs, y=[_goodness(TARGET, v) for v in eff_], mode="lines", name="Effectiveness only",
+                                           line=dict(color=AMBER, width=1.5, dash="dot"), hovertemplate="%{y:.0f}<extra></extra>"))
+                _mark(fig_s, xs[i_ref], sc_[i_ref], xs[i_new], sc_[i_new], xs[i_best], sc_[i_best], base, name)
+                fig_s.update_xaxes(tickvals=xs, ticktext=names, title=P.ATTRS[attr][0])
+                fig_s.update_yaxes(title="Overall score (0–100)")
+                st.plotly_chart(_hud_fig(fig_s, 340), width="stretch", config={"displayModeBar": False})
+                best_txt = (f"Sweet spot: <b style='color:{D.YELLOW}'>{html.escape(str(names[i_best]))}</b> "
+                            f"(score {sc_[i_best]:.0f})")
+                if i_best == i_new:
+                    best_txt += " · your design is already there"
+                else:
+                    best_txt += f" · {round(sc_[i_best] - sc_[i_new]) + 0:+d} vs your design"
+                    if 0 < i_best < len(opts) - 1 and attr in P.ORDINAL:
+                        best_txt += " · more beyond this point starts to hurt"
+                st.html(f"<div class='cond-line'>{best_txt}</div>")
+                st.caption("Cyan line: overall score for your design with only this characteristic changed. Amber dots: "
+                           "effectiveness alone, to show where the other outcomes pull the answer.")
+            with tab2:
+                c1_, c2_ = st.columns(2)
+                a1 = c1_.selectbox("Across", P.ORDINAL, index=P.ORDINAL.index("protection"),
+                                   format_func=lambda k: P.ATTRS[k][0], key="lab_hm_a")
+                a2 = c2_.selectbox("Down", [k for k in P.ORDINAL if k != a1],
+                                   format_func=lambda k: P.ATTRS[k][0], key="lab_hm_b")
+                l1, l2 = P.ATTRS[a1][1], P.ATTRS[a2][1]
+                grid = [{**new_row, a1: i, a2: j} for j in range(len(l2)) for i in range(len(l1))]
+                z = _overall(model, grid, blend(grid), w, weights).reshape(len(l2), len(l1))
+                bj, bi = np.unravel_index(int(np.argmax(z)), z.shape)
+                fig_h = go.Figure(go.Heatmap(
+                    z=z, x=list(range(len(l1))), y=list(range(len(l2))), zmin=float(z.min()) - 2, zmax=float(z.max()),
+                    colorscale=[[0, "#0b1218"], [0.5, "#155e72"], [1, CYAN]], showscale=False,
+                    text=[[f"{v:.0f}" for v in r_] for r_ in z], texttemplate="%{text}", textfont=dict(size=13),
+                    hovertemplate=f"{P.ATTRS[a1][0]}: %{{x}}<br>{P.ATTRS[a2][0]}: %{{y}}<br>score %{{z:.0f}}<extra></extra>"))
+                _mark(fig_h, base_prof[a1], base_prof[a2], prof[a1], prof[a2], bi, bj, base, name, heat=True)
+                fig_h.update_xaxes(tickvals=list(range(len(l1))), ticktext=l1, title=P.ATTRS[a1][0], showgrid=False)
+                fig_h.update_yaxes(tickvals=list(range(len(l2))), ticktext=l2, title=P.ATTRS[a2][0], showgrid=False)
+                st.plotly_chart(_hud_fig(fig_h, 360, legend=False), width="stretch", config={"displayModeBar": False})
+                st.html(f"<div class='cond-line'>Best combination: <b style='color:{D.YELLOW}'>{html.escape(P.ATTRS[a1][0])} "
+                        f"{html.escape(l1[bi])} + {html.escape(P.ATTRS[a2][0])} {html.escape(l2[bj])}</b> "
+                        f"(score {z[bj, bi]:.0f} · {round(z[bj, bi] - z[prof[a2], prof[a1]]) + 0:+d} vs your design)</div>")
+                st.caption("Every combination of the two characteristics, other settings as designed. Brighter = better "
+                           "overall score.")
+            st.html(_legend_html(best=True))
 
         # ---------------- trade space
-        _h(7, "Trade space", "every reported system under these conditions")
+        _h(8, "Trade space", "every reported system, these conditions")
         plats = rep[rep["n"] >= 3]
         prow = [{"category": c, "origin": D.PLATFORM_INFO.get(n, (c, "Custom"))[1], "p_field_modified": 0,
                  **P.profile(n, c, D.CATALOG)[0], **cond} for n, c in zip(plats["platform"], plats["category"])]
@@ -758,26 +914,29 @@ def render(conn):
                     marker=dict(size=8 + 6 * np.sqrt(plats["n"].to_numpy()[m] / plats["n"].max()), color=cmap.get(c)),
                     text=plats["platform"].to_numpy()[m],
                     hovertemplate="%{text}<br>survival %{x:.2f} · effectiveness %{y:.2f}<extra></extra>"))
-            fig3.add_trace(go.Scatter(x=[out_ref["p_rating_survivability"], out_new["p_rating_survivability"]],
-                                      y=[m_ref, m_new], mode="lines", line=dict(color=CYAN, width=2, dash="dot"),
-                                      showlegend=False, hoverinfo="skip"))
             fig3.add_trace(go.Scatter(x=[out_ref["p_rating_survivability"]], y=[m_ref], mode="markers+text",
-                                      name=f"{base} as fielded", text=[base], textposition="bottom center",
+                                      name=f"{base} as fielded", text=["original"], textposition="middle left",
+                                      textfont=dict(color=STEEL),
                                       marker=dict(size=16, color=STEEL, symbol="circle-open", line=dict(width=3))))
             fig3.add_trace(go.Scatter(x=[out_new["p_rating_survivability"]], y=[m_new], mode="markers+text",
-                                      name=name or "New system", text=[name or "New"], textposition="top center",
+                                      name=name or "New system", text=[name or "New"], textposition="middle right",
                                       textfont=dict(color=CYAN),
                                       marker=dict(size=20, color=CYAN, symbol="diamond",
                                                   line=dict(color="#ffffff", width=1.5))))
+            if abs(out_new["p_rating_survivability"] - out_ref["p_rating_survivability"]) + abs(m_new - m_ref) > 0.05:
+                fig3.add_annotation(x=out_new["p_rating_survivability"], y=m_new, ax=out_ref["p_rating_survivability"],
+                                    ay=m_ref, xref="x", yref="y", axref="x", ayref="y", showarrow=True, arrowhead=3,
+                                    arrowsize=1.3, arrowwidth=2.5, arrowcolor=CYAN, standoff=12, startstandoff=10)
             fig3.update_xaxes(title="Predicted platform survival →", range=[1, 5])
             fig3.update_yaxes(title="Predicted effectiveness →", range=[1, 5])
             fig3.update_layout(legend=dict(font=dict(size=10)))
             st.plotly_chart(_hud_fig(fig3, 430), width="stretch", config={"displayModeBar": False})
+            st.html(_legend_html())
             st.caption("Each dot is a reported platform, forecast under the conditions you set (size = number of "
-                       "reports). Top right is best. The dotted line shows how your changes move the design.")
+                       "reports). Top right is best. The arrow shows where your changes move the design.")
 
         # ---------------- nearest systems
-        _h(8, "Nearest real systems", "the reports behind this forecast")
+        _h(9, "Nearest real systems", "the reports behind this forecast")
         with st.container(key="hud_near"):
             cols = st.columns(3)
             for col, (_, r) in zip(cols, near.iterrows()):
@@ -794,7 +953,7 @@ def render(conn):
                            "in the Report database to check the forecast against what units said.")
 
         # ---------------- three models
-        _h(9, "Three models", "independent effectiveness forecasts")
+        _h(10, "Three models", "independent effectiveness forecasts")
         with st.container(key="hud_three"):
             cols = st.columns(3)
             for col, nm in zip(cols, MODEL_NAMES):
@@ -808,18 +967,29 @@ def render(conn):
                     + (f"▲ MODELS AGREE · spread {spread:.2f} pts" if agree else
                        f"▲ MODELS DISAGREE · spread {spread:.2f} pts: treat this forecast as uncertain")
                     + "</div>")
+            st.caption("The straight-line model cannot bend, so it misses sweet spots and curves that the tree and "
+                       "forest can follow. When only it disagrees, a curved effect is a likely reason.")
 
         # ---------------- stress test
-        _h(10, "Stress test", "enemy jamming from none to high")
+        _h(11, "Stress test", "enemy jamming from none to high")
         sweep = lambda r: [{**r, "ew_level": lv} for lv in LEVELS]
         fig = go.Figure()
         series = [(name or "New system", _forecast(model, sweep(new_row), blend(sweep(new_row)), w), CYAN),
                   (f"{base} as fielded", _forecast(model, sweep(ref_row)), STEEL)]
         if has_alt:
             series.append((f"Typical {alt_cat}", _forecast(model, sweep({**ref_row, "category": alt_cat})), AMBER))
+        (mn, _, _), (mr, _, _) = series[0][1], series[1][1]
+        fig.add_trace(go.Scatter(x=LEVELS, y=mr, mode="lines", line=dict(width=0), hoverinfo="skip", showlegend=False))
+        fig.add_trace(go.Scatter(x=LEVELS, y=mn, mode="lines", line=dict(width=0), fill="tonexty", hoverinfo="skip",
+                                 fillcolor="rgba(62,224,255,.16)", showlegend=False))
+        for k_, lv in enumerate(LEVELS):
+            if abs(mn[k_] - mr[k_]) > 0.15:
+                fig.add_annotation(x=lv, y=mn[k_], ax=lv, ay=mr[k_], xref="x", yref="y", axref="x", ayref="y",
+                                   showarrow=True, arrowhead=3, arrowwidth=2, standoff=8, startstandoff=8,
+                                   arrowcolor=D.GREEN if mn[k_] > mr[k_] else D.RED)
         for label, (m, lo, hi), colr in series:
             fig.add_trace(go.Scatter(x=LEVELS + LEVELS[::-1], y=list(hi) + list(lo[::-1]), fill="toself",
-                                     fillcolor=colr, opacity=.12, line=dict(width=0), hoverinfo="skip",
+                                     fillcolor=colr, opacity=.07, line=dict(width=0), hoverinfo="skip",
                                      showlegend=False))
             fig.add_trace(go.Scatter(x=LEVELS, y=m, name=label, mode="lines+markers",
                                      line=dict(color=colr, width=3, shape="spline"),
@@ -829,11 +999,12 @@ def render(conn):
         fig.update_yaxes(range=[1, 5], title="Predicted effectiveness", dtick=1)
         fig.update_xaxes(title="Enemy EW / jamming")
         st.plotly_chart(_hud_fig(fig, 320), width="stretch", config={"displayModeBar": False})
-        st.caption("Lines: the forest's average at each jamming level, other settings as chosen. Shaded: where 80% "
-                   "of its 200 trees land. Try changing the guidance link or jamming resistance and watch the slope.")
+        st.caption("Steel line: the original; cyan line: your design. The band between them and the arrows show what "
+                   "your changes do at each jamming level (green = better). Faint bands: where 80% of the forest's 200 "
+                   "trees land. Try a different guidance link or more jamming resistance and watch the gap.")
 
         # ---------------- sensitivity
-        _h(11, "Sensitivity", "which conditions move the effectiveness forecast")
+        _h(12, "Sensitivity", "which conditions matter most")
         rows = []
         for f, label in COND_LABELS.items():
             opts = LEVELS if f in ("ew_level", "ad_level") else (
@@ -856,7 +1027,7 @@ def render(conn):
         st.caption("Each bar: one condition run through all its options, others held as set (red = worst, green = best).")
 
         # ---------------- hangar
-        _h(12, "Hangar", "saved designs, ranked under the current conditions")
+        _h(13, "Hangar", "saved designs, ranked")
         with st.container(key="hud_hangar"):
             hangar = st.session_state.setdefault("lab_hangar", [])
             b1, b2, _ = st.columns([1.3, 1, 2])
@@ -902,7 +1073,7 @@ def render(conn):
                            "them side by side.")
 
         # ---------------- trust
-        _h(13, "Can you trust it?")
+        _h(14, "Can you trust it?")
         with st.container(key="hud_trust"):
             sc = model["scores"]
             body = "".join(
@@ -923,8 +1094,15 @@ def render(conn):
                 jam = {lk: float(_forecast(model, [{**ref, "category": "FPV / Small Strike UAS", "mobility": "Airborne",
                                                     "link": lk, "ew_hardening": 0, "ew_level": "High"}])[0][0])
                        for lk in ("Radio data link", "Wire / fiber-optic")}
+                veh = {**ref, "category": "Armored / Vehicles", "mobility": "Wheeled", "link": "None / unguided",
+                       "ew_hardening": 2, "reach": 0, "crew": 3, "ew_level": "None"}
+                eff_a = [float(_forecast(model, [{**veh, "protection": lv}])[0][0]) for lv in range(4)]
+                peak = int(np.argmax(eff_a))
                 checks = [("More armor raises predicted survival", armor[1] - armor[0] > 0.3,
                            f"{armor[0]:.2f} → {armor[1]:.2f}"),
+                          ("Armor helps effectiveness up to a point, then heavy armor costs more than it gives",
+                           peak in (1, 2) and eff_a[3] < eff_a[peak] - 0.08,
+                           " → ".join(f"{v:.2f}" for v in eff_a)),
                           ("Under heavy jamming a fiber-optic link beats a radio link",
                            jam["Wire / fiber-optic"] - jam["Radio data link"] > 0.3,
                            f"{jam['Radio data link']:.2f} vs {jam['Wire / fiber-optic']:.2f}")]

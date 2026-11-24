@@ -434,16 +434,28 @@ def _profile(name, cat):
 
 def ew_sensitivity(name, cat):
     pr = _profile(name, cat)
-    return LINK_EW.get(pr["link"], 0.5) * (1 - 0.35 * pr["ew_hardening"])
+    h = pr["ew_hardening"]
+    return LINK_EW.get(pr["link"], 0.5) * (1 - 0.45 * h + 0.08 * h * h)   # diminishing returns: 1, .63, .42
+
+
+def design_bonus(pr):
+    """PLANTED curved effects on effectiveness (sweet spots), points on the 1-5 scale:
+    armor helps (crews keep fighting) up to light/medium, then weight costs more than it saves: 0, +.28, +.12, -.48;
+    reach helps up to medium, then long-range systems lose responsiveness: 0, +.21, +.24, +.09."""
+    a, r = pr["protection"], pr["reach"]
+    return (0.50 * a - 0.22 * a * a) + (0.30 * r - 0.09 * r * r)
 
 
 def generate_sample_data(conn, n=150, seed=None):
     """SYNTHETIC, with PLANTED patterns (they test the analysis; they are not findings):
     - enemy EW lowers effectiveness by link type (radio links most, fiber-optic and unguided almost not),
-      less for jamming-resistant systems, and causes more comms / EW malfunctions;
+      less for jamming-resistant systems (diminishing returns), and causes more comms / EW malfunctions;
+    - SWEET SPOTS: armor raises effectiveness up to light/medium and lowers it at heavy; reach peaks at medium
+      (design_bonus); jamming resistance costs a little maintenance;
     - enemy air defense lowers effectiveness of airborne platforms, more for larger signatures;
-    - platform survival rises with protection and falls with signature; crew survival rises with protection
-      (uncrewed systems: high); maintenance gets harder with protection and reach; hard-to-hit falls with
+    - platform survival rises with protection, with diminishing returns (0, +.65, +1.1, +1.35), and falls with
+      signature; crew survival rises with protection (uncrewed systems: high); maintenance gets harder with
+      protection, faster at the heavy end (0, -.35, -.9, -1.65), and with reach; hard-to-hit falls with
       signature; loss risk rises as survival falls.
     Each platform gets its own result and ratings; about 1 report in 4 skips the optional adversary section."""
     rng = random.Random(seed)
@@ -477,13 +489,14 @@ def generate_sample_data(conn, n=150, seed=None):
         for name, cat in picks:
             pr = _profile(name, cat)
             air = pr["mobility"] == "Airborne"
-            score = (4.4 - 0.96 * ew_idx[ew] * ew_sensitivity(name, cat)
+            score = (4.25 + design_bonus(pr) - 0.96 * ew_idx[ew] * ew_sensitivity(name, cat)
                      - (0.16 * ad * (1 + pr["signature"]) if air else 0) + rng.gauss(0, 0.7))
             scores.append(score)
             eff = max(1, min(5, round(score)))
-            surv = 3.2 + 0.55 * pr["protection"] - 0.45 * pr["signature"] + 0.25 * (eff - 3) - (0.12 * ad if air else 0)
+            a_ = pr["protection"]
+            surv = 3.2 + (0.75 * a_ - 0.10 * a_ * a_) - 0.45 * pr["signature"] + 0.25 * (eff - 3) - (0.12 * ad if air else 0)
             crew = 4.6 if pr["crew"] == 0 else 2.9 + 0.6 * pr["protection"] - 0.2 * pr["signature"] + 0.15 * (eff - 3)
-            ease = 4.1 - 0.45 * pr["protection"] - 0.25 * pr["reach"] - (1 if has_mal else 0)
+            ease = 4.1 - (0.25 * a_ + 0.10 * a_ * a_) - 0.25 * pr["reach"] - 0.15 * pr["ew_hardening"] - (1 if has_mal else 0)
             hard = (4.0 - 0.75 * pr["signature"] + (0.4 if pr["mobility"] in ("Airborne", "Naval", "Munition") else 0)
                     - (0.3 if pr["mobility"] == "Towed / emplaced" else 0))
             lost = rng.random() < max(0.02, min(0.6, 0.06 + 0.11 * (3.4 - surv)))
