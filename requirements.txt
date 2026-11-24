@@ -4,3 +4,4 @@ altair
 qrcode
 plotly
 networkx
+scikit-learn

@@ -51,6 +51,14 @@ one-time backup copy saved next to it first.
   (used together / platform to malfunction / category hubs), learning curves (running averages
   settling as reports arrive), 3D effectiveness landscape and trait space, a flow (Sankey) from
   conditions to outcome to limiting factor, and animated bubbles week by week. Plotly.
+- **Lab**: a forecast to explore ideas. Pick the closest existing system (for example HAWK), name the
+  new one, and set modifications the model can represent: a different origin, a field-modified build,
+  or "behaves partly like another class" (an analyst assumption that blends two classes' forecasts).
+  Then move the condition sliders (enemy EW, enemy air defense, time of day, weather, terrain, more).
+  Shows the predicted effectiveness against the base system, a stress test across EW levels, which
+  conditions move the forecast most, and the holdout test (random forest vs guessing the average,
+  split by report, seed 42). The model knows only class, origin, field-modified and conditions; it
+  cannot see range, seeker or other design details. Needs at least 60 rated platform cards.
 
 ## Files
 
@@ -59,6 +67,7 @@ one-time backup copy saved next to it first.
 | `app.py` | The three pages and the app shell |
 | `data.py` | Catalog, answer options and their colors, database (ported from v3), sample-data generator (v3's, level 1 only) |
 | `graphs.py` | The Graphs page |
+| `lab.py` | The Lab page: forecast for a new system built from a known one (random forest, scikit-learn) |
 | `analyst_base.html` | Analyst console page with the 3D models baked in (rebuild with `python build_analyst.py "..\\FieldReport\\html"`) |
 | `widgets.py` | Color-coded answer buttons, colored dropdowns, badges, page styling |
 | `.streamlit/config.toml` | Dark theme |

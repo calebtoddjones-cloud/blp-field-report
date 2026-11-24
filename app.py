@@ -28,6 +28,11 @@ import streamlit as st
 
 import data as D
 import graphs
+try:
+    import lab                      # needs scikit-learn; the rest of the app runs without it
+except ImportError as _lab_err:
+    lab = None
+    LAB_IMPORT_ERROR = str(_lab_err)
 from i18n import language_switch, t
 from widgets import (add_css, badge, begin_page, button_css, choice, color_dot_legend,
                      colored_select, flush_css, page_header, q_error, q_label, rgba, tint)
@@ -1090,7 +1095,7 @@ def page_home():
         st.markdown("<div class='door-tag' style='color:#dcc6f2'>AUTHORIZED PERSONNEL</div>",
                     unsafe_allow_html=True)
         st.markdown("### Analyst login")
-        st.caption("Report database, insights, scorecard, weapon profiles, sector map and graphs.")
+        st.caption("Report database, insights, scorecard, weapon profiles, sector map, graphs and the prediction lab.")
         if st.button("Analyst login" if allowed else "Analyst login (locked)",
                      icon=":material/lock_open:" if allowed else ":material/lock:", key="door_analyst",
                      disabled=not allowed, width="stretch"):
@@ -1144,11 +1149,28 @@ def page_graphs():
 
 PAGE_GRAPHS = st.Page(page_graphs, title="Graphs", icon=":material/scatter_plot:", url_path="graphs")
 
+
+def page_lab():
+    page_header("Lab", "Sketch a new system from one the model already knows, set the battlefield conditions, "
+                "and see how it might perform. A forecast for exploring ideas, trained on the reports.")
+    add_css(".block-container { max-width: 1500px; }")
+    if lab is None:
+        st.error("The Lab needs scikit-learn, which isn't installed for this Python. Run "
+                 "`pip install scikit-learn` and restart the app. "
+                 f"({LAB_IMPORT_ERROR})", icon=":material/error:")
+        return
+    sample_tools("lab")
+    if not lab.render(conn()):
+        empty_state()
+
+
+PAGE_LAB = st.Page(page_lab, title="Lab", icon=":material/science:", url_path="lab")
+
 begin_page()
 st.session_state["_tr_on"] = False          # Ukrainian only ever switches on inside the report form
 # Field view: no tabs at all (start page and form only). Analyst view: every tab, once allowed.
 in_analyst = st.session_state.get("view") == "analyst" and analyst_allowed()
-pages = [PAGE_HOME, PAGE_NEW] + ([PAGE_DB, PAGE_INS, PAGE_GRAPHS] if analyst_allowed() else [])
+pages = [PAGE_HOME, PAGE_NEW] + ([PAGE_DB, PAGE_INS, PAGE_GRAPHS, PAGE_LAB] if analyst_allowed() else [])
 nav = st.navigation(pages, position="top" if in_analyst else "hidden")
 if st.button("Share", icon=":material/qr_code_2:", key="share_btn", help="Show a QR code to this app"):
     share_dialog()
